@@ -22,8 +22,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	flag "github.com/spf13/pflag"
+	"unstable.build/rune/internal/debug"
 )
 
 func TestCheckModeArgs(t *testing.T) {
@@ -72,6 +74,47 @@ func TestCheckModeArgs(t *testing.T) {
 	}
 }
 
+func TestVersionString(t *testing.T) {
+	tests := []struct {
+		name      string
+		tag       string
+		commit    string
+		buildDate string
+		want      string
+	}{
+		{
+			name:      "with build date",
+			tag:       "v1.2.3",
+			commit:    "abc1234",
+			buildDate: "2026-09-11T13:12:48Z",
+			want:      "v1.2.3 (HEAD is abc1234, built 2026-09-11T13:12:48Z)",
+		},
+		{
+			name:      "without build date",
+			tag:       "v1.2.3",
+			commit:    "abc1234",
+			buildDate: "",
+			want:      "v1.2.3 (HEAD is abc1234)",
+		},
+		{
+			name:      "development defaults",
+			tag:       "development",
+			commit:    "HEAD",
+			buildDate: "",
+			want:      "development (HEAD is HEAD)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := versionString(tt.tag, tt.commit, tt.buildDate)
+			if got != tt.want {
+				t.Errorf("versionString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // parseModeFlags parses args on a fresh flag set so the test does not
 // mutate the process-wide one.
 func parseModeFlags(
@@ -98,6 +141,21 @@ func TestHeadlessFlagsAreRuneFlags(t *testing.T) {
 		if flag.CommandLine.Lookup(name) == nil {
 			t.Errorf("headlessFlags names %q, which is not a rune flag", name)
 		}
+	}
+}
+
+// TestVersionStringUsesBuildStampLayout pins the ldflag -> --version
+// contract: a stamp in the exact form cmd/buildstamp emits must reach
+// the version line verbatim. Without a reader the linker prunes
+// debug.BuildDate and the -X in the Makefile becomes a silent no-op.
+func TestVersionStringUsesBuildStampLayout(t *testing.T) {
+	stamp := time.Date(2026, 9, 11, 13, 12, 48, 0, time.UTC).
+		Format(debug.BuildDateLayout)
+
+	got := versionString("v1.2.3", "abc1234", stamp)
+
+	if !strings.Contains(got, stamp) {
+		t.Errorf("versionString() = %q, want it to contain the stamp %q", got, stamp)
 	}
 }
 

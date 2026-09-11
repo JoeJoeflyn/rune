@@ -56,8 +56,8 @@ RACE_FLAG=$(if $(filter true,$(RUNE_DEBUG_BUILD)),-race)
 # buildstamp exits zero, so any failure leaves BUILD_DATE empty (the
 # error still reaches stderr). BUILD_DATE_LDFLAG $(error)s on an empty
 # stamp so a broken buildstamp aborts the build instead of baking in a
-# missing debug.BuildDate that would silently disable the one-off
-# upgrade-entitlement lockdown.
+# missing debug.BuildDate that would leave `rune --version` reporting no
+# build date.
 BUILD_DATE := $(shell out=$$(cd $(ROOT_DIR) && $(GO) run ./cmd/buildstamp) && printf '%s' "$$out")
 BUILD_DATE_LDFLAG = $(if $(strip $(BUILD_DATE)),,$(error buildstamp produced no build date; refusing to build a binary with an empty debug.BuildDate))-X unstable.build/rune/internal/debug.BuildDate=$(strip $(BUILD_DATE))
 COMMON_LDFLAGS=-X unstable.build/rune/internal/debug.Tag=$$(git describe --tags) -X unstable.build/rune/internal/debug.Commit=$$(git rev-parse --short HEAD) $(BUILD_DATE_LDFLAG) $(DEBUG_LDFLAGS)

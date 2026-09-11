@@ -77,8 +77,8 @@ const (
 
 var (
 	apicfg = apiclient.DefaultConfig()
-	// Version is a combination of Tag and Commit, representing
-	// this executables version.
+	// Version is a combination of Tag, Commit and BuildDate,
+	// representing this executables version.
 	version string
 
 	configFilename          = "config.yaml"
@@ -147,7 +147,17 @@ func init() {
 		path.Join(defaultDataPath, "server.log"),
 		"Log workspace server logs to this file")
 
-	version = fmt.Sprintf("%s (HEAD is %s)", debug.Tag, debug.Commit)
+	version = versionString(debug.Tag, debug.Commit, debug.BuildDate)
+}
+
+// versionString renders the --version line. buildDate is empty for
+// builds that go through plain `go build` rather than the Makefile or
+// a distro package, so it is reported only when the ldflag is set.
+func versionString(tag, commit, buildDate string) string {
+	if buildDate == "" {
+		return fmt.Sprintf("%s (HEAD is %s)", tag, commit)
+	}
+	return fmt.Sprintf("%s (HEAD is %s, built %s)", tag, commit, buildDate)
 }
 
 func resolveDefaultConfigPath(dataDir string) string {
