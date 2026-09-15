@@ -75,12 +75,18 @@ func (c *editorFlusherCloser) OnDidEdit(
 	c.parent.setDirtyFileAttr(c.uri, c.buf, c.lastFlush)
 }
 
+// reloadVersion tells wrapAndDispatch to take the buffer version at
+// completion: a reload replaces the buffer with what is on disk, so the
+// version that ends up saved is only known once the worker is done.
+const reloadVersion = -1
+
 func (e *editorFlusherCloser) ForceFlush(ctx context.Context) (<-chan error, error) {
+	saved := e.buf.Version()
 	inner, err := e.fc.ForceFlush(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return e.wrapAndDispatch(inner, false, false), nil
+	return e.wrapAndDispatch(inner, false, saved), nil
 }
 
 func (e *editorFlusherCloser) LastFlush() time.Time {
@@ -88,11 +94,15 @@ func (e *editorFlusherCloser) LastFlush() time.Time {
 }
 
 func (e *editorFlusherCloser) Flush(ctx context.Context) (<-chan error, error) {
+	// The save writes the buffer as it is now, so this is the version it
+	// makes durable. Edits that land while it runs are not in it and must
+	// keep the file unflushed.
+	saved := e.buf.Version()
 	inner, err := e.fc.Flush(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return e.wrapAndDispatch(inner, false, false), nil
+	return e.wrapAndDispatch(inner, false, saved), nil
 }
 
 func (e *editorFlusherCloser) Reload(ctx context.Context) (<-chan error, error) {
@@ -102,24 +112,25 @@ func (e *editorFlusherCloser) Reload(ctx context.Context) (<-chan error, error) 
 		e.reloading = false
 		return nil, err
 	}
-	return e.wrapAndDispatch(inner, true, true), nil
+	return e.wrapAndDispatch(inner, true, reloadVersion), nil
 }
 
 func (e *editorFlusherCloser) wrapAndDispatch(
-	inner <-chan error, skipOnErr, isReload bool,
+	inner <-chan error, isReload bool, savedVersion int,
 ) <-chan error {
 	out := make(chan error, 1)
 	prev, settled := e.settled, make(chan struct{})
 	e.settled = settled
 	go debug.CapturePanicReport(func() {
 		err := <-inner
-		doDispatch := err == nil || !skipOnErr
 		if prev != nil {
 			<-prev
 		}
 		e.parent.config.ScheduleNextTick(func() {
-			if doDispatch {
-				_ = e.dispatchFlush()
+			// Nothing reached disk on failure, so the buffer is still
+			// unflushed and subscribers must not be told otherwise.
+			if err == nil {
+				_ = e.dispatchFlush(savedVersion)
 			}
 			if isReload {
 				e.reloading = false
@@ -135,10 +146,17 @@ func (e *editorFlusherCloser) wrapAndDispatch(
 	return out
 }
 
-func (e *editorFlusherCloser) dispatchFlush() error {
-	e.lastFlush = e.buf.Version()
+func (e *editorFlusherCloser) dispatchFlush(savedVersion int) error {
+	if savedVersion == reloadVersion {
+		savedVersion = e.buf.Version()
+	}
+	e.lastFlush = savedVersion
 	e.parent.log(log.TraceLevel, "flushed, new snapshot is at %d", e.lastFlush)
-	return e.parent.dispatchFlush(e.uri, e.h)
+	err := e.parent.dispatchFlush(e.uri, e.h)
+	// dispatchFlush clears the tab's dirty marker for the whole file, so
+	// raise it again when the buffer has moved past what was written.
+	e.parent.setDirtyFileAttr(e.uri, e.buf, e.lastFlush)
+	return err
 }
 
 func (e *editorFlusherCloser) Close() error {
