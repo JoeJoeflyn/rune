@@ -723,6 +723,90 @@ func (s *pausedCreateScheme) Watch(string, chan<- schemeapi.EventInfo, ...scheme
 
 func (s *pausedCreateScheme) StopWatch(int) error { return nil }
 
+type pausedRenameScheme struct {
+	pausedCreateScheme
+}
+
+func (s *pausedRenameScheme) Rename(oldPath, newPath string) error {
+	if err := s.Scheme.Rename(oldPath, newPath); err != nil {
+		return err
+	}
+	if newPath == s.path {
+		close(s.touched)
+		<-s.release
+	}
+	return nil
+}
+
+func TestHandleFSChange_ExternalEditBetweenSaveRenameAndReopen(t *testing.T) {
+	cfg := defaultConfigWithWrap(false)
+	mu, sched, drain := buildTestSchedulerForCfg(t, &cfg)
+	manager := workspace.NewManager(config.NopConfig(), sched)
+	require.NoError(t, manager.RegisterScheme(workspace.MemoryScheme, workspace.NewMemoryScheme))
+	dir := t.TempDir()
+	uri, err := workspaceapi.ParseURI("file://" + dir)
+	require.NoError(t, err)
+	path := filepath.Join(dir, "dakar.md")
+	require.NoError(t, os.WriteFile(path, []byte("original\n"), 0o644))
+	s := &pausedRenameScheme{pausedCreateScheme: pausedCreateScheme{
+		path: "dakar.md", touched: make(chan struct{}), release: make(chan struct{}),
+	}}
+	require.NoError(t, manager.RegisterScheme(workspace.FileScheme,
+		func(ctx context.Context, cfg config.Config, root workspaceapi.URI) (schemeapi.Scheme, error) {
+			base, err := workspace.NewFileScheme(ctx, cfg, root)
+			if root.Equal(uri) {
+				s.Scheme = base
+				return s, err
+			}
+			return base, err
+		}))
+	m := newTestWorkspaceManagerHandlerWithManager(t, manager, mu, drain, uri, cfg)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	unblock := sync.OnceFunc(func() { close(s.release) })
+	t.Cleanup(unblock)
+	h := newSafeHandler(m)
+	h.Resize(30, 9)
+	h.Handle(term.Event{Type: term.EventKey, Mod: term.ModCtrl, Ch: '\\'})
+	feedLiteral(t, h, "edit dakar.md")
+	h.Handle(term.Event{Type: term.EventKey, Key: term.KeyEnter})
+	feedLiteral(t, h, "isaved ")
+	h.Handle(term.Event{Type: term.EventKey, Key: term.KeyEsc})
+	x := m.focusEx()
+	file, err := x.workspace.URI("dakar.md")
+	require.NoError(t, err)
+	m.locked(func() {
+		_, tab, ok := x.focusTab()
+		require.True(t, ok)
+		require.NoError(t, x.flusher.flushAndThen(file, tab, false, nil))
+	})
+	select {
+	case <-s.touched:
+	case <-time.After(5 * time.Second):
+		t.Fatal("save did not rename the swap file")
+	}
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "saved original\n", string(data))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte("external update\n"), 0o644))
+	// Avoid relying on filesystem timestamp resolution to distinguish the writes.
+	modified := info.ModTime().Add(time.Second)
+	require.NoError(t, os.Chtimes(path, modified, modified))
+	dispatchFilesystemEvent(x, mu, vctrl.NopMatcher(false), testEventInfo{e: schemeapi.Write, u: file})
+	unblock()
+	m.quiesce()
+	m.locked(func() {
+		focused, _, ok := x.focusTab()
+		require.True(t, ok, "the completed save should reload rather than prompt")
+		require.Equal(t, file, focused)
+		assertBufferContent(t, x, file, "external update")
+	})
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "external update\n", string(data))
+}
+
 func TestHandleFSChangeDuringOwnSave(t *testing.T) {
 	t.Run("started by the command layer", func(t *testing.T) {
 		testFSChangeDuringOwnSave(t, false)
