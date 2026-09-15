@@ -40,6 +40,7 @@ import (
 	sdkiterator "github.com/unstablebuild/rune-go-sdk/iterator"
 	"github.com/unstablebuild/rune-go-sdk/term"
 	"github.com/unstablebuild/rune-go-sdk/tui"
+	"go.uber.org/goleak"
 	gomock "go.uber.org/mock/gomock"
 	"unstable.build/rune/internal/browser"
 	"unstable.build/rune/internal/browser/browsertest"
@@ -80,6 +81,9 @@ type testFlusherCloser struct {
 	// (e.g. shorter) content, exercising stale-cursor handling.
 	reloadContent string
 	lastFlush     time.Time
+	// flushAsync, when set, supplies the channel Flush returns so a test
+	// can complete saves in an order of its choosing.
+	flushAsync func() <-chan error
 }
 
 func (t *testFlusherCloser) Close() error {
@@ -89,6 +93,9 @@ func (t *testFlusherCloser) Close() error {
 	return nil
 }
 func (t *testFlusherCloser) Flush(context.Context) (<-chan error, error) {
+	if t.flushAsync != nil {
+		return t.flushAsync(), nil
+	}
 	var err error
 	if t.flushFn != nil {
 		err = t.flushFn()
@@ -2828,6 +2835,71 @@ func TestReload(t *testing.T) {
 		require.True(t, ok)
 		assert.False(t, dirty)
 	})
+}
+
+// TestCloseWithSavesInFlight covers a workspace tearing down while saves are
+// still running. Close must not wait on the closer's goroutines (the workspace
+// layer already holds Close until a flush's bytes are on disk, and a reload's
+// worker parks on the very event loop Close runs on), and those goroutines
+// must not outlive the workspace's result: the only thing they wait on
+// besides it is the previous save, which always hands over.
+func TestCloseWithSavesInFlight(t *testing.T) {
+	resource1, err := workspaceapi.ParseURI("file:///a")
+	require.NoError(t, err)
+	ctx := context.Background()
+	ticks := make(chan func(), 16)
+	cfg := text.DefaultConfig()
+	cfg.ScheduleNextTick = func(fn func()) bool { ticks <- fn; return true }
+	c, testLoader := newTestComponentConfig(t, NopEditor(), cfg)
+	win, err := c.Focus()
+	require.NoError(t, err)
+	var saves []chan error
+	testLoader.flusherCloser = &testFlusherCloser{
+		flushAsync: func() <-chan error {
+			ch := make(chan error, 1)
+			saves = append(saves, ch)
+			return ch
+		},
+	}
+	h, err := c.OpenFileTab(resource1, true)
+	require.NoError(t, err)
+	require.NoError(t, win.SetContent(h))
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+
+	first, err := c.Flush(ctx, win)
+	require.NoError(t, err)
+	second, err := c.Flush(ctx, win)
+	require.NoError(t, err)
+	settled := c.Settled(h)
+	require.NotNil(t, settled)
+
+	require.NoError(t, c.Close())
+
+	// The second save's result lands first, so its goroutine is now parked
+	// on the first save with the component already gone.
+	saves[1] <- nil
+	saves[0] <- nil
+	for _, out := range []<-chan error{first, second} {
+		select {
+		case err := <-out:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("a save's result was not delivered after Close")
+		}
+		_, open := <-out
+		assert.False(t, open, "the result channel must be closed after its result")
+	}
+	select {
+	case <-settled:
+	default:
+		t.Fatal("settled must be closed once every result has been handed over")
+	}
+
+	// The results still reach the scheduler after Close and must be
+	// harmless to apply on the closed component.
+	for len(ticks) > 0 {
+		(<-ticks)()
+	}
 }
 
 // TestReloadClampsStaleCursor guards the editorFlusherCloser reload seam: when a

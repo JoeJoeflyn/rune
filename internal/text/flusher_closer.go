@@ -43,6 +43,14 @@ type editorFlusherCloser struct {
 	commands  []textapi.CommandManual
 	lastFlush int
 	reloading bool
+	// settled is non-nil while a save or reload is in flight or its result
+	// is still queued on the scheduler; until then the file's saved
+	// timestamp and dirty state describe the world before the operation,
+	// whichever caller started it. The channel is closed once the result
+	// of that operation, and of every earlier one, has been handed to the
+	// scheduler in order, so a callback scheduled after that runs behind
+	// them.
+	settled chan struct{}
 }
 
 func (c *editorFlusherCloser) OnWillEdit(
@@ -101,25 +109,26 @@ func (e *editorFlusherCloser) wrapAndDispatch(
 	inner <-chan error, skipOnErr, isReload bool,
 ) <-chan error {
 	out := make(chan error, 1)
+	prev, settled := e.settled, make(chan struct{})
+	e.settled = settled
 	go debug.CapturePanicReport(func() {
 		err := <-inner
 		doDispatch := err == nil || !skipOnErr
-		if !doDispatch {
-			if isReload {
-				e.parent.config.ScheduleNextTick(func() {
-					e.reloading = false
-				})
-			}
-			out <- err
-			close(out)
-			return
+		if prev != nil {
+			<-prev
 		}
 		e.parent.config.ScheduleNextTick(func() {
-			_ = e.dispatchFlush()
+			if doDispatch {
+				_ = e.dispatchFlush()
+			}
 			if isReload {
 				e.reloading = false
 			}
+			if e.settled == settled {
+				e.settled = nil
+			}
 		})
+		close(settled)
 		out <- err
 		close(out)
 	})
