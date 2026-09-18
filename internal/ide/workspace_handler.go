@@ -182,6 +182,12 @@ type workspaceManagerHandler struct {
 	lastSession   idehistory.Session
 	reopenPending bool
 
+	// sessionReopenDisabled suppresses the reopen prompt entirely. It
+	// is set for instances spawned as secondary OS windows, which share
+	// the storage of the instance that spawned them and must not reopen
+	// its workspaces.
+	sessionReopenDisabled bool
+
 	packageConfigMergeHook func(idepkg.ConfigMergeEvent) (idepkg.ConfigMergeResult, error)
 
 	watchedFilesChangeHook func(int)
@@ -778,12 +784,14 @@ func (h *workspaceManagerHandler) init(
 
 	// Read the previous session before any workspace install can
 	// overwrite the document with the current one.
-	lastSession, loadErr := h.state.LoadLastSession(ctx)
-	if loadErr != nil {
-		log.Warnf("load last session: %v", loadErr)
+	if !h.sessionReopenDisabled {
+		lastSession, loadErr := h.state.LoadLastSession(ctx)
+		if loadErr != nil {
+			log.Warnf("load last session: %v", loadErr)
+		}
+		h.lastSession = lastSession
+		h.reopenPending = len(h.lastSession.Workspaces) > 0
 	}
-	h.lastSession = lastSession
-	h.reopenPending = len(h.lastSession.Workspaces) > 0
 
 	// best effort
 	user, err := user.Current()
