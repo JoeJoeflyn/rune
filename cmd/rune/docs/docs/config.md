@@ -67,19 +67,19 @@ editor:
 
 The four supported configurations are:
 
-### Modal
+### Vim
 
 A vi-style editor with modes, motions, operators, text objects,
 marks, registers, and macros. Pick this if your muscle memory comes
 from Vim or Neovim.
 
-See the [Modal Editor cheatsheet](./learn/modal-editor.md) for the
+See the [Vim Editor cheatsheet](./learn/vim-editor.md) for the
 exact keystrokes and what is or isn't supported.
 
 There is no ex command mode: in Rune the `:` prompt is the global
 [command prompt](#command-prompt), not a vi-internal one, so
 `:s/foo/bar/g`, `:g/pattern/`, and similar ex commands are not part
-of the editor. Modal is not a 100% Vim/Neovim port either; if you
+of the editor. The vim preset is not a 100% Vim/Neovim port either; if you
 rely on vimscript or the long tail of plugins, use [Exoeditor](#exoeditor)
 with `vim` or `nvim` instead.
 
@@ -205,7 +205,7 @@ For ready-to-copy `exo` configs (Vim, Neovim, Helix, Nano, and more), see the
   },
   ```
 
-  A bare printable key like `:` only works with [Modal](#modal)
+  A bare printable key like `:` only works with [Vim](#vim)
   editing, where the editor distinguishes a normal mode from an insert
   mode and the command key is bound outside insert mode. With
   [Standard](#standard) editing the editor always treats the next

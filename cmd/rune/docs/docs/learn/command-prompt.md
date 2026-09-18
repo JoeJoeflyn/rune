@@ -95,7 +95,7 @@ word jumps, selection, yank and paste, undo, and auto-pairing all
 available.
 
 The editor follows your `editor.mode`: `modal` mode gives you
-[modal editing](./modal-editor.md) with normal-mode motions and text objects,
+[modal editing](./vim-editor.md) with normal-mode motions and text objects,
 `standard` mode gives you the [standard editor](./standard-editor.md), and
 `emacs` mode gives you the [Emacs editor](./emacs-editor.md). In `exo` mode the
 prompt cannot host your external editor, so it uses your
@@ -272,7 +272,7 @@ recorded macro by name. Register expansion is recursive and guards
 against cycles, and you cannot echo a register while it is actively
 being recorded.
 
-In the [modal editor](./modal-editor.md#macros), normal mode records a
+In the [vim editor](./vim-editor.md#macros), normal mode records a
 macro into a register with `q{reg}` and replays it with `@{reg}` (for
 example `qa` … `q` to record, `@a` to play). That recording is stored in
 the same register, so `{register}` replays exactly those keys.
