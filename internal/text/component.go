@@ -204,7 +204,7 @@ func (c *Component) buildEditorHandler(
 		fc = tree
 	}
 
-	handler, err = c.ed.Edit(withAuxiliaryBars(c.ctx), file, buf, readOnly, recover)
+	handler, err = c.ed.Edit(WithBars(c.ctx, BarOptions{}), file, buf, readOnly, recover)
 	if err != nil {
 		return nil, nil, err
 	}

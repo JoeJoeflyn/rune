@@ -696,6 +696,7 @@ func (h *workspaceManagerHandler) init(
 		cfg.terminalConfig(), cfg.pluginBarConfig(),
 		h.events.newPublisher(h.homeURI), 0 /* vte capacity */, h.clip, h.macro,
 		h.dispatchOnPreview, tm, homeParser,
+		vctrl.NopService(),
 		h.newPromptEditor(cfg), h.commandObserver, h.debugCommands,
 		cfg.commandPromptCfg(),
 		cfg.pkgEditorMode() == editorModeModal,
@@ -1859,6 +1860,7 @@ func (h *workspaceManagerHandler) buildWorkspaceAsync(
 		cfg.terminalConfig(), cfg.pluginBarConfig(), h.events.newPublisher(uri),
 		h.initialVTECapacity, h.clip, h.macro, h.dispatchOnPreview,
 		tm, wsParser,
+		vctrlService,
 		h.newPromptEditor(cfg), h.commandObserver, h.debugCommands,
 		cfg.commandPromptCfg(),
 		cfg.pkgEditorMode() == editorModeModal,
@@ -1885,7 +1887,7 @@ func (h *workspaceManagerHandler) buildWorkspaceAsync(
 	cursorHistoryCloser, err := idecursor.WithHistory(
 		ex.Editor(), h.ideStorage, apibrowser, apibrowser, ex.workspace,
 		wsParser, visibleManager, uri,
-		h.scheduleNextTick, fexURI,
+		h.scheduleNextTick, fexURI, gitshowBaseURI(),
 	)
 	if err != nil {
 		if symbolDBCloser != nil {
@@ -2101,7 +2103,8 @@ func (h *workspaceManagerHandler) installPendingWorkspace(
 	}
 	fexplorerURI, _ := workspaceapi.ParseURI(fileExplorerURI)
 	wh.historyCloser = h.state.SubscribeEvents(
-		ctx, uri, &ex.comp, exSnapshotter{ex: ex, wh: wh}, fexplorerURI)
+		ctx, uri, &ex.comp, exSnapshotter{ex: ex, wh: wh},
+		fexplorerURI, gitshowBaseURI())
 	// The name identifies the workspace rather than its contents, so it
 	// comes back whether or not the session itself is restored.
 	if state.Name != "" {
