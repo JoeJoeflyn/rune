@@ -85,6 +85,36 @@ what its arguments mean.
 If you need a `*.go` glob or a real pipe, hand the line to a shell
 with `!` or `!!` (see below).
 
+## Fixing the line
+
+The prompt accepts the shell's editing keys for the end of the line:
+
+| Key | What it does |
+| --- | --- |
+| `<backspace>` | Delete the previous character. On an empty line, close the prompt. |
+| `<ctrl-w>` | Delete the previous word. |
+| `<ctrl-backspace>`, `<alt-backspace>` | Delete the previous word. |
+| `<ctrl-u>` | Clear the whole line. |
+
+A "word" ends at anything that is not a letter, digit or `_`, so
+`<ctrl-w>` walks back one path component at a time while you are
+completing a file argument:
+
+```
+edit internal/handler/command/prompt.go
+edit internal/handler/command/          <- <ctrl-w>
+edit internal/handler/                  <- <ctrl-w>
+```
+
+Deleting past a completed argument unwinds the completion for it, so
+the suggestion list follows the line back. Unlike `<backspace>`,
+neither `<ctrl-w>` nor `<ctrl-u>` closes the prompt when the line runs
+out.
+
+Not all terminals distinguish `<ctrl-backspace>`; many send `^H`
+instead, which the prompt treats the same way. For anything more than
+trailing edits, use edit mode below.
+
 ## Edit the prompt with `<shift-esc>`
 
 The prompt line is fine for short commands, but editing a long or
