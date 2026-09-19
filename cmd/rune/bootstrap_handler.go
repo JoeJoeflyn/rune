@@ -127,7 +127,6 @@ func newBootstrapHandler(
 	bh.rootCfg = rootCfg
 
 	if isBootstrapped(dataDir) {
-		migrateBootstrappedConfig(configPath)
 		client, releaseManager := newAPIClient(bh.storage, installBackupDir, rootCfg)
 		bh.network = newNetwork(rootCfg, dataDir, newNetworkGate(client))
 		bh.network.startAutoJoin()
