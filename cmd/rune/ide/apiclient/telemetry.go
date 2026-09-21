@@ -273,7 +273,6 @@ func (t *telemetry) postDataCtx(ctx context.Context, buf *bytes.Buffer, data any
 	if err != nil {
 		return fmt.Errorf("post request: %v", err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("response status code non-200")
 	}

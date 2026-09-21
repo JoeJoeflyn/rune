@@ -1053,13 +1053,7 @@ func (s *shell) compactConversation(
 	if err != nil {
 		return nil, err
 	}
-	var sessionMaxTokens int
-	if s.getMaxTokens != nil {
-		sessionMaxTokens = s.getMaxTokens()
-	}
-	_, _, err = agent.CompactDialogue(ctx, svc, model, s.store, d,
-		agent.WithMaxOutputTokens(agent.SummarizeMaxOutputTokens(sessionMaxTokens, model)),
-	)
+	_, _, err = agent.CompactDialogue(ctx, svc, model, s.store, d)
 	if err != nil {
 		return nil, fmt.Errorf("compact conversation %q: %w", id, err)
 	}

@@ -100,8 +100,7 @@ func (e *viEditor) Edit(
 		}
 	}
 	ret = e.Publisher.PublishEdit(file, buf, ret, cursor)
-	bars, ok := text.BarsFromContext(ctx)
-	if !ok {
+	if !text.BarsFromContext(ctx) {
 		return ret, nil
 	}
 	auxBarConfig := e.config.auxBarConfig
@@ -109,23 +108,18 @@ func (e *viEditor) Edit(
 	iconsBarConfig := e.config.iconsBarConfig
 	iconsBarConfig.CommandRegistry = e.registry
 	iconsBarConfig.Publisher = publisherEventsAdapter{pub: &e.Publisher}
-	if e.config.enableAuxBar && !bars.DisableAuxBar {
+	if e.config.enableAuxBar {
 		ret = text.WithAuxBar(ret, buf, scroll, auxBarConfig)
 	}
-	if e.config.enableIconsBar && !bars.DisableIconsBar {
+	if e.config.enableIconsBar {
 		ret = text.WithIconsBar(e.config.auxBarConfig.Service, e.config.enableGitIcons, ret, buf,
 			scroll, iconsBarConfig)
 	}
 	if !e.config.statusBarEnabled {
 		return ret, nil
 	}
-	statusBarConfig := e.config.statusBarConfig
-	if bars.StatusBar != nil {
-		statusBarConfig.Workspace = bars.StatusBar.Workspace
-		statusBarConfig.GitService = bars.StatusBar.GitService
-	}
 	bar := text.WithStatusBar(ret, buf, scroll,
-		readOnly, recovered, statusBarConfig)
+		readOnly, recovered, e.config.statusBarConfig)
 	root.setStatusBar(bar)
 	return bar, nil
 }

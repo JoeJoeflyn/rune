@@ -63,7 +63,6 @@ func AlwaysFalse() bool {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "wait" {
-		allowAnyTracer()
 		for {
 			_ = Sum(5)
 			_ = Other(3)

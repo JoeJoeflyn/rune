@@ -36,12 +36,12 @@ const PRESETS: PresetDef[] = [
     label: 'Standard (Linux)',
     platform: 'linux',
   },
-  {id: 'modal', editor: 'modal', label: 'Vim'},
+  {id: 'modal', editor: 'modal', label: 'Modal'},
   {id: 'emacs', editor: 'emacs', label: 'Emacs'},
 ];
 const FIXED_GUIDES: Record<string, FixedGuide> = {
   '/learn/exoeditor': {id: 'exo', label: 'Exoeditor'},
-  '/learn/vim-editor': {id: 'modal', label: 'Vim'},
+  '/learn/modal-editor': {id: 'modal', label: 'Modal'},
   '/learn/standard-editor': {id: 'standard', label: 'Standard'},
   '/learn/emacs-editor': {id: 'emacs', label: 'Emacs'},
 };

@@ -641,11 +641,8 @@ func (f *streamHandler) Resize(width, height int) {
 
 func (f *streamHandler) doneSetup() {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.Handler.Resize(f.width, f.height)
-	// Resizes reach this handler under the same lock, so publishing the
-	// flag here is what stops one that lands now from being recorded as
-	// pending setup and never forwarded.
+	f.mu.Unlock()
 	f.setup.Store(true)
 }
 

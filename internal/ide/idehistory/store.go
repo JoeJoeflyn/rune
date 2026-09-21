@@ -325,22 +325,25 @@ func (s *Store) ListWorkspaceURIs(
 // tracker needs terminal/task/layout context for the next Store call.
 // The returned Closer unsubscribes.
 //
-// skip lists pseudo-buffer namespaces whose events must be ignored
-// entirely — the file explorer, the :gitshow diff popup and anything
-// else that must never enter the persisted file list. Entries match by
-// path prefix, so a namespace covers resources minted under it.
+// skip lists URIs whose events must be ignored entirely — typically
+// pseudo-buffers like the file explorer that must never enter the
+// persisted file list.
 func (s *Store) SubscribeEvents(
 	ctx context.Context,
 	uri workspaceapi.URI, ed text.Editor, snap Snapshotter,
 	skip ...workspaceapi.URI,
 ) io.Closer {
+	skipSet := make(map[string]struct{}, len(skip))
+	for _, u := range skip {
+		skipSet[u.String()] = struct{}{}
+	}
 	t := &tracker{
 		store: s,
 		uri:   uri,
 		snap:  snap,
 		ctx:   ctx,
 		files: make(map[string]File),
-		skip:  skip,
+		skip:  skipSet,
 	}
 	err := ed.SubscribeEvents([]textapi.EventType{
 		textapi.EventTypeOpen,

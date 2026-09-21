@@ -16,15 +16,8 @@ rest of the IDE needing to know whether the files sit on your disk or across an
 SSH connection.
 
 For your own machines, the [network](./network.md) opens the same kind of
-workspace without SSH. The two are worth telling apart before you pick one:
-
-| | `ssh://` | [`rune://`](./network.md) |
-| --- | --- | --- |
-| Reaches | any host you can already `ssh` to, whether or not it is yours | your own machines, signed into your Rune account |
-| Through a NAT | needs a forwarded port or a jump host | traverses the NAT on its own, so a laptop in a cafe reaches a desktop at home |
-| You manage | SSH keys, `known_hosts`, ports | nothing beyond signing in |
-
-The network guide has the [full comparison](./network.md#rune-and-ssh).
+workspace without SSH: they join one private network and address each
+other by name.
 
 ## Getting started
 

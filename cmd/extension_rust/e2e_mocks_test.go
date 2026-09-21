@@ -40,18 +40,11 @@ import (
 // raCallback implements idelsp.Callback for e2e tests, recording applied
 // edits and forwarding progress/apply-edit notifications to optional hooks.
 type raCallback struct {
-	mu             sync.Mutex
-	onServerStatus func(serverStatus)
-	onApplyEdit    func(semanticapi.ApplyWorkspaceEditParams)
-	appliedEdits   []semanticapi.ApplyWorkspaceEditParams
-	diagnostics    []semanticapi.PublishDiagnosticsParams
-}
-
-// serverStatus is the payload of rust-analyzer's experimental/serverStatus
-// notification; quiescent reports that no background work is pending.
-type serverStatus struct {
-	Health    string `json:"health"`
-	Quiescent bool   `json:"quiescent"`
+	mu           sync.Mutex
+	onProgress   func(semanticapi.ProgressParams)
+	onApplyEdit  func(semanticapi.ApplyWorkspaceEditParams)
+	appliedEdits []semanticapi.ApplyWorkspaceEditParams
+	diagnostics  []semanticapi.PublishDiagnosticsParams
 }
 
 func (c *raCallback) ShowMessage(_ context.Context, _ semanticapi.ShowMessageParams) error {
@@ -77,7 +70,13 @@ func (c *raCallback) publishedDiagnostics() []semanticapi.PublishDiagnosticsPara
 	return append([]semanticapi.PublishDiagnosticsParams(nil), c.diagnostics...)
 }
 
-func (c *raCallback) Progress(_ context.Context, _ semanticapi.ProgressParams) error {
+func (c *raCallback) Progress(_ context.Context, params semanticapi.ProgressParams) error {
+	c.mu.Lock()
+	cb := c.onProgress
+	c.mu.Unlock()
+	if cb != nil {
+		cb(params)
+	}
 	return nil
 }
 
@@ -149,21 +148,8 @@ func (c *raCallback) WaitFileProcessed(_ context.Context, _ string) error {
 }
 
 func (c *raCallback) HandleNotification(
-	_ context.Context, method string, params json.RawMessage,
+	_ context.Context, _ string, _ json.RawMessage,
 ) error {
-	if method != "experimental/serverStatus" {
-		return nil
-	}
-	var status serverStatus
-	if err := json.Unmarshal(params, &status); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	cb := c.onServerStatus
-	c.mu.Unlock()
-	if cb != nil {
-		cb(status)
-	}
 	return nil
 }
 

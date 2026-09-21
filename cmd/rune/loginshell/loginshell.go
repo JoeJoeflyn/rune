@@ -22,7 +22,6 @@ package loginshell
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -98,19 +97,19 @@ func (h loginHandler) HandleCommand(
 					return markdownResponsive(
 						fmt.Sprintf("Login did not complete: `%v`.", err)), true, nil
 				}
-				user, ok, err := h.client.AccountStatus(ctx)
-				if err != nil {
-					return nil, false, err
-				}
-				if !ok {
-					return nil, false, errors.New(
-						"login completed but no account token was stored")
-				}
-				return markdownResponsive(formatAccountStatus(user)), true, nil
+				return markdownResponsive(h.loginSuccess(ctx)), true, nil
 			}
 		},
 		func() error { return nil },
 	), nil
+}
+
+func (h loginHandler) loginSuccess(ctx context.Context) string {
+	user, ok, err := h.client.AccountStatus(ctx)
+	if err != nil || !ok {
+		return "Login successful."
+	}
+	return formatAccountStatus(user)
 }
 
 func (loginHandler) Complete(

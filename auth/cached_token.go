@@ -177,7 +177,6 @@ func (l *CachedTokenSource) getToken(
 			if err == nil {
 				token = tokenForStorage.oauth2()
 				if ctx.Err() != nil {
-					l.mu.Unlock()
 					return nil, ctx.Err()
 				}
 				l.token = token

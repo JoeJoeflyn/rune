@@ -40,7 +40,6 @@ import (
 	"unstable.build/rune/cmd/rune-agent/agent/utf8validate"
 	"unstable.build/rune/cmd/rune-agent/dialogue/dialoguemanager"
 	"unstable.build/rune/cmd/rune-agent/hooks"
-	"unstable.build/rune/cmd/rune-agent/llm/llmarg"
 	"unstable.build/rune/internal/debug"
 	"unstable.build/rune/internal/ide/idelsp/languages"
 )
@@ -1628,26 +1627,6 @@ func (a *Agent) persistMessages(
 	return true
 }
 
-// SummarizeMaxOutputTokens returns the output-token budget to use for a
-// compaction summary. An explicit session override is respected; otherwise
-// a default higher than the Anthropic 8192 fallback is used. Either way the
-// budget is clamped to the model's documented ceiling so the request is not
-// rejected: the session override is validated against the chat model, which
-// need not be the model that summarizes.
-func SummarizeMaxOutputTokens(sessionValue int, model llmapi.ModelEntry) int {
-	ceiling := llmarg.MaxOutputTokens(model)
-	if sessionValue > 0 {
-		if ceiling > 0 {
-			return min(sessionValue, ceiling)
-		}
-		return sessionValue
-	}
-	if ceiling > 0 {
-		return min(defaultSummarizeMaxTokens, ceiling)
-	}
-	return 0
-}
-
 // compact summarizes the conversation, persists the compacted messages,
 // and returns them. On failure it emits EventError and returns the
 // error so the caller can fall through.
@@ -1660,10 +1639,7 @@ func (a *Agent) compact(
 		summarizeSvc = a.config.CompactSvc
 	}
 
-	compactedMsgs, archivedID, err := CompactDialogue(
-		ctx, summarizeSvc, a.config.Model, a.store, d,
-		WithMaxOutputTokens(SummarizeMaxOutputTokens(a.MaxOutputTokens(), a.config.Model)),
-	)
+	compactedMsgs, archivedID, err := CompactDialogue(ctx, summarizeSvc, a.config.Model, a.store, d)
 	if err != nil {
 		emit(ctx, ch, Event{Type: EventError, Error: fmt.Errorf("compact: %v", err)})
 		return dialoguemanager.Dialogue{}, err
@@ -1773,12 +1749,6 @@ const CompactResumePrefix = "Continue executing the approved plan immediately. "
 // CompactResumeSuffix appends an explicit encouragement to continue execution.
 const CompactResumeSuffix = "\n\nKeep implementing from this state."
 
-// defaultSummarizeMaxTokens is the fallback output-token budget for compaction
-// summaries when the session has not set an explicit max-output-token override.
-// It is higher than the Anthropic client default (8192) so long summaries are
-// not truncated mid-sentence on a default install.
-const defaultSummarizeMaxTokens = 32768
-
 // ArchivedID returns the base archive dialogue ID for the given dialogue.
 // It strips any existing "-archived" (with optional numeric suffix) to avoid accumulation.
 func ArchivedID(dialogueID string) string {
@@ -1863,23 +1833,15 @@ func cleanSummary(raw string) string {
 	text := reAnalysis.ReplaceAllString(raw, "")
 	if m := reSummary.FindStringSubmatch(text); len(m) >= 2 {
 		inner := strings.TrimSpace(m[1])
-		text = reSummary.ReplaceAllLiteralString(text, "Summary:\n"+inner)
+		text = reSummary.ReplaceAllString(text, "Summary:\n"+inner)
 	}
 	text = reBlankLines.ReplaceAllString(text, "\n")
 	return strings.TrimSpace(text)
 }
 
 // Summarize sends the given messages to the LLM and asks it to produce
-// a structured summary. It returns the cleaned summary text. When
-// maxOutputTokens is greater than zero it is set on the request so the
-// provider's smaller default cap does not truncate long summaries.
-func Summarize(
-	ctx context.Context,
-	svc llmapi.Service,
-	model llmapi.ModelEntry,
-	messages []llmapi.Message,
-	maxOutputTokens int,
-) (string, error) {
+// a structured summary. It returns the cleaned summary text.
+func Summarize(ctx context.Context, svc llmapi.Service, model llmapi.ModelEntry, messages []llmapi.Message) (string, error) {
 	messages = normalizeMessages(slices.Clone(messages))
 
 	prompt := llmapi.Message{
@@ -1888,9 +1850,6 @@ func Summarize(
 	}
 	summaryReq := llmapi.Request{
 		Messages: append(messages, prompt),
-	}
-	if maxOutputTokens > 0 {
-		summaryReq.MaxOutputTokens = maxOutputTokens
 	}
 
 	sanitizeRequest(&summaryReq)
@@ -1959,7 +1918,7 @@ func CompactDialogue(
 		return nil, "", errors.New(reason)
 	}
 
-	summaryText, err := Summarize(ctx, svc, model, d.Messages, copts.maxOutputTokens)
+	summaryText, err := Summarize(ctx, svc, model, d.Messages)
 	if err != nil {
 		return nil, "", err
 	}
@@ -2029,22 +1988,13 @@ func sessionStartSource(isNew bool) string {
 type CompactOption func(*compactOptions)
 
 type compactOptions struct {
-	hooks           *hooks.Runner
-	maxOutputTokens int
+	hooks *hooks.Runner
 }
 
 // WithCompactHooks fires the PreCompact hook (manual trigger) before
 // summarizing. A blocked hook turns into a returned error.
 func WithCompactHooks(r *hooks.Runner) CompactOption {
 	return func(o *compactOptions) { o.hooks = r }
-}
-
-// WithMaxOutputTokens sets the max-output-token budget for the summarize
-// request. A value of 0 (or unset) leaves the provider fallback default
-// in place. Pass the session value here so long summaries are not
-// truncated mid-sentence by the provider's smaller default cap.
-func WithMaxOutputTokens(n int) CompactOption {
-	return func(o *compactOptions) { o.maxOutputTokens = n }
 }
 
 // toolInputJSON returns the tool's raw arguments string as a

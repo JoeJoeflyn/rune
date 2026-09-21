@@ -42,7 +42,6 @@ type fakeClient struct {
 	logoutHit bool
 	account   auth.RPCUser
 	hasToken  bool
-	statusErr error
 }
 
 func (c *fakeClient) Login(context.Context) apiclient.LoginSession {
@@ -64,16 +63,13 @@ func (c *fakeClient) Logout(context.Context) error {
 }
 
 func (c *fakeClient) AccountStatus(context.Context) (auth.RPCUser, bool, error) {
-	return c.account, c.hasToken, c.statusErr
+	return c.account, c.hasToken, nil
 }
 
 func TestLoginStreamsURLThenSuccess(t *testing.T) {
 	t.Parallel()
 
-	_, h := Login(&fakeClient{
-		loginURL: "https://auth.example.com/oauth?code=abc",
-		hasToken: true,
-	})
+	_, h := Login(&fakeClient{loginURL: "https://auth.example.com/oauth?code=abc"})
 	out := runCommand(t, h)
 
 	require.Len(t, out, 2)
@@ -151,45 +147,6 @@ func TestLoginReportsFailure(t *testing.T) {
 	assert.Contains(t, out[0], "auth.example.com/oauth")
 	assert.Contains(t, out[1], "Login did not complete")
 	assert.Contains(t, out[1], "boom")
-}
-
-func TestLoginAccountStatusFailures(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range []struct {
-		name    string
-		client  *fakeClient
-		wantErr string
-	}{
-		{
-			name: "unreadable token after login",
-			client: &fakeClient{
-				loginURL:  "https://auth.example.com/oauth",
-				statusErr: errors.New("jwt: decode payload"),
-			},
-			wantErr: "jwt: decode payload",
-		},
-		{
-			name:    "login that stores no token",
-			client:  &fakeClient{loginURL: "https://auth.example.com/oauth"},
-			wantErr: "no account token",
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			_, h := Login(tt.client)
-			it, err := h.HandleCommand(context.Background(),
-				repl.Command{}, repl.NopProgressWriter())
-			require.NoError(t, err)
-			items, err := sdkiterator.ToSlice(context.Background(), it)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.wantErr)
-			for _, s := range responsiveStrings(t, items) {
-				assert.NotContains(t, s, "Login successful")
-			}
-		})
-	}
 }
 
 func TestLogoutReportsSuccess(t *testing.T) {

@@ -106,10 +106,7 @@ func scheduleUpgradeCheck(
 		return nil
 	}
 
-	// An OS-packaged build cannot install its own upgrade, so the
-	// background check is skipped outright: it would only produce a
-	// nag prompt whose action is guaranteed to fail.
-	if upCfg.autoCheckEnabled && debug.OSPackaged != "true" {
+	if upCfg.autoCheckEnabled {
 		mgr.Start(ctx)
 	}
 	return mgr
@@ -129,12 +126,7 @@ func registerUpgradeCommand(i *ide.IDE, mgr *ideupgrade.Manager) error {
 	if mgr == nil {
 		return nil
 	}
-	// Still registered in OS-packaged builds: the command explains
-	// where updates come from, which beats an unknown-command error.
-	h := upgradeshell.New(upgradeshell.Config{
-		Manager:    mgr,
-		OSPackaged: debug.OSPackaged == "true",
-	})
+	h := upgradeshell.New(upgradeshell.Config{Manager: mgr})
 	if err := i.RegisterREPLCommand(upgradeshell.Manual(), h); err != nil {
 		return fmt.Errorf("register '%s': %w", upgradeshell.CommandName, err)
 	}

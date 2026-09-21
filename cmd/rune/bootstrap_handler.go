@@ -127,6 +127,7 @@ func newBootstrapHandler(
 	bh.rootCfg = rootCfg
 
 	if isBootstrapped(dataDir) {
+		migrateBootstrappedConfig(configPath)
 		client, releaseManager := newAPIClient(bh.storage, installBackupDir, rootCfg)
 		bh.network = newNetwork(rootCfg, dataDir, newNetworkGate(client))
 		bh.network.startAutoJoin()
@@ -247,9 +248,6 @@ func (b *bootstrapHandler) buildConfiguredIDE(
 	}
 	if debug.DebugBuild == "true" {
 		opts = append(opts, ide.WithDebugCommands(true))
-	}
-	if *flagNoSessionReopen {
-		opts = append(opts, ide.WithoutSessionReopen())
 	}
 	opts = append(opts,
 		ide.WithReleaseManager(releaseManager),

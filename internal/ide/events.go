@@ -82,18 +82,12 @@ func dispatchFilesystemEvent(
 	}
 
 	mu.Lock()
-	handleFSChange(ex, flag, uri, nil)
+	handleFSChange(ex, flag, uri)
 	ex.comp.DispatchEvent(ev)
 	mu.Unlock()
 }
 
-// handleFSChange decides whether an fs event on uri is a reload, a conflict
-// prompt, or noise. waited is the pending save or reload the check already
-// parked behind, if any; a tab still reporting that same one had its apply
-// tick refused by the scheduler, so there is nothing further to wait for.
-func handleFSChange(
-	ex *ex, flag schemeapi.Event, uri workspaceapi.URI, waited <-chan struct{},
-) {
+func handleFSChange(ex *ex, flag schemeapi.Event, uri workspaceapi.URI) {
 	t, open := ex.comp.Resource(uri)
 	dirty, _ := ex.comp.IsDirty(uri)
 	ex.log(log.DebugLevel, "handling event %d for file %s, open=%t dirty=%t",
@@ -111,18 +105,6 @@ func handleFSChange(
 		ex.log(log.TraceLevel,
 			"skipping ide-level fs change for %s: external editor",
 			uri.Name())
-		return
-	}
-
-	// A save can emit Create/Write/Rename before publishing its final mtime.
-	// Recheck after completion rather than treating our intermediate state as
-	// an external edit, or dropping a real external change that arrived during it.
-	if settled := ex.comp.Settled(t); settled != nil && settled != waited {
-		ex.flusher.after(settled, func() {
-			if cur, ok := ex.comp.Resource(uri); !ex.closed && ok && cur == t {
-				handleFSChange(ex, flag, uri, settled)
-			}
-		})
 		return
 	}
 

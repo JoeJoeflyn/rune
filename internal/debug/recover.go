@@ -51,7 +51,6 @@ func CapturePanicReportWith(dir, pkg, version string, run func()) (
 			log.Errorf("temp file: %v", err)
 			return
 		}
-		defer f.Close()
 		if _, err = f.Write(data); err != nil {
 			log.Errorf("write to report %q: %v", f.Name(), err)
 			return
@@ -89,7 +88,6 @@ func CapturePanicReport(fn func()) {
 			log.Errorf("temp file: %v", err)
 			return
 		}
-		defer f.Close()
 		if _, err = f.Write(data); err != nil {
 			log.Errorf("write to report %q: %v", f.Name(), err)
 			return

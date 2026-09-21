@@ -103,26 +103,21 @@ func (e *editor) Edit(
 	}
 	scroll := root.less.Scroll()
 	ret = e.pub.PublishEdit(file, buf, ret, cursor)
-	if bars, ok := text.BarsFromContext(ctx); ok {
+	if text.BarsFromContext(ctx) {
 		auxBarConfig := e.auxBarConfig
 		auxBarConfig.CommandRegistry = e.fileRegistry
 		iconsBarConfig := e.iconsBarConfig
 		iconsBarConfig.CommandRegistry = e.fileRegistry
 		iconsBarConfig.Publisher = publisherEventsAdapter{pub: &e.pub}
-		if e.enableAuxBar && !bars.DisableAuxBar {
+		if e.enableAuxBar {
 			ret = text.WithAuxBar(ret, buf, scroll, auxBarConfig)
 		}
-		if e.enableIconsBar && !bars.DisableIconsBar {
+		if e.enableIconsBar {
 			ret = text.WithIconsBar(e.auxBarConfig.Service, e.enableGitIcons, ret, buf,
 				scroll, iconsBarConfig)
 		}
 		if e.statusBarEnabled {
-			statusBarConfig := e.statusBarConfig
-			if bars.StatusBar != nil {
-				statusBarConfig.Workspace = bars.StatusBar.Workspace
-				statusBarConfig.GitService = bars.StatusBar.GitService
-			}
-			bar := text.WithStatusBar(ret, buf, scroll, readOnly, recovered, statusBarConfig)
+			bar := text.WithStatusBar(ret, buf, scroll, readOnly, recovered, e.statusBarConfig)
 			root.setStatusBar(bar)
 			if !e.commandBar {
 				bar.ShowCommandBar(false)

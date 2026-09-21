@@ -40,9 +40,7 @@ func writeTarGz(dir string, pw release.ProgressWriter) error {
 		return err
 	}
 	gzw := gzip.NewWriter(pw)
-	defer gzw.Close()
 	tw := tar.NewWriter(gzw)
-	defer tw.Close()
 	var written int64
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

@@ -80,6 +80,6 @@ how to edit it.
 
 ## See also
 
-- [Vim editor](./vim-editor.md): registers and the `+` system clipboard register
+- [Modal editor](./modal-editor.md): registers and the `+` system clipboard register
 - [Standard editor](./standard-editor.md): copy, cut, paste, and paste-history keys
 - [Config](../config.md)
