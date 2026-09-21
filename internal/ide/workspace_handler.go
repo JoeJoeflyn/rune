@@ -2593,7 +2593,10 @@ func (h *workspaceManagerHandler) commandAddWorkspace(args ...string) error {
 	if len(args) == 0 {
 		return errors.New("expected at least one argument with the workspace path")
 	}
-	path := args[0]
+	// Directory completion candidates carry a trailing separator so that
+	// accepting one descends instead of terminating the argument; the
+	// user can dispatch straight from that state.
+	path := command.TrimPartialCandidateSuffix(args[0])
 
 	if uri, err := workspaceapi.ParseURI(path); err == nil {
 		return h.addOrCreateWorkspace(uri)
@@ -3278,9 +3281,14 @@ func (h *workspaceManagerHandler) completeCommand(
 		// inspects the trailing token, so passing the command name as
 		// args[0] (required by HistoryCompleter to strip the prefix) is
 		// safe for both.
+		//
+		// History stores workspace paths canonically, without the partial
+		// marker, so its entries are marked here: every workspaceopen
+		// argument is a directory, and picking one must not stop the user
+		// from descending further.
 		argv := append([]string{cmd.Name}, cmd.Args...)
 		completers := append([]command.Completer{
-			command.HistoryCompleter(h.commandHistory),
+			command.PartialCompleter(command.HistoryCompleter(h.commandHistory)),
 			command.NonRecursiveDirsCompleter(h.empty.workspace),
 		}, h.workspaceOpenCompleters...)
 		return command.MultiCompleter(completers...).Complete(ctx, argv)
