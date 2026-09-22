@@ -43,6 +43,15 @@ const (
 	workspaceStateDocumentKind   = "workspace-state"
 	workspaceStateDocumentPrefix = "workspace-state:"
 
+	// TerminalStatePartition is the sub-partition that holds terminal
+	// snapshots. Listing a partition decodes every document in it to
+	// evaluate filters, and one snapshot runs to megabytes, so they
+	// must not share a partition with the documents that are listed.
+	TerminalStatePartition = "terminal-state"
+
+	terminalStateDocumentKind   = "terminal-state"
+	terminalStateDocumentPrefix = "terminal-state:"
+
 	lastSessionDocumentKind = "last-session"
 	lastSessionDocumentID   = "last-session"
 )
@@ -137,21 +146,50 @@ type Session struct {
 // Store is not safe for concurrent use. It expects to be called from
 // a single goroutine (typically the IDE event loop).
 type Store struct {
-	storage  storageapi.Service
-	trackers map[string]*tracker
+	storage   storageapi.Service
+	terminals storageapi.Service
+	trackers  map[string]*tracker
 }
 
 // New constructs a Store backed by storage. The Store does NOT take
 // ownership of storage and never calls Close on it.
 func New(storage storageapi.Service) *Store {
 	return &Store{
-		storage:  storage,
-		trackers: make(map[string]*tracker),
+		storage:   storage,
+		terminals: storageapi.WithPartition(storage, TerminalStatePartition),
+		trackers:  make(map[string]*tracker),
 	}
 }
 
-// StoreWorkspaceState writes state for uri.
+// StoreWorkspaceState writes the whole of state for uri, terminal
+// snapshots included.
 func (s *Store) StoreWorkspaceState(
+	ctx context.Context, uri workspaceapi.URI, state State,
+) error {
+	if err := s.storeWorkspaceStateDocument(ctx, uri, state); err != nil {
+		return err
+	}
+	id := terminalStateDocumentID(uri)
+	if len(state.Terminals) == 0 {
+		if err := s.terminals.Delete(ctx, id); err != nil &&
+			!errors.Is(err, storageapi.ErrNotFound) {
+			return fmt.Errorf(
+				"idehistory: clear terminals %q: %w", uri.String(), err)
+		}
+		return nil
+	}
+	doc := newTerminalStateDocument(uri, state.Terminals)
+	if err := s.terminals.Set(ctx, id, doc); err != nil {
+		return fmt.Errorf(
+			"idehistory: store terminals %q: %w", uri.String(), err)
+	}
+	return nil
+}
+
+// storeWorkspaceStateDocument writes everything but the terminal
+// snapshots. It is the per-editor-event path: snapshotting every open
+// terminal costs far more than the file list it would ride along with.
+func (s *Store) storeWorkspaceStateDocument(
 	ctx context.Context, uri workspaceapi.URI, state State,
 ) error {
 	doc := newWorkspaceStateDocument(uri, state)
@@ -207,17 +245,20 @@ func (s *Store) PersistWorkspaceState(
 	if !ok {
 		return nil
 	}
-	return s.StoreWorkspaceState(ctx, uri, t.buildState())
+	return s.storeWorkspaceStateDocument(ctx, uri, t.buildState())
 }
 
 // ClearWorkspaceState deletes the persisted state for uri.
 func (s *Store) ClearWorkspaceState(
 	ctx context.Context, uri workspaceapi.URI,
 ) error {
-	id := workspaceStateDocumentID(uri)
-	if err := s.storage.Delete(ctx, id); err != nil &&
+	if err := s.storage.Delete(ctx, workspaceStateDocumentID(uri)); err != nil &&
 		!errors.Is(err, storageapi.ErrNotFound) {
 		return fmt.Errorf("idehistory: clear %q: %w", uri.String(), err)
+	}
+	if err := s.terminals.Delete(ctx, terminalStateDocumentID(uri)); err != nil &&
+		!errors.Is(err, storageapi.ErrNotFound) {
+		return fmt.Errorf("idehistory: clear terminals %q: %w", uri.String(), err)
 	}
 	return nil
 }
@@ -236,7 +277,20 @@ func (s *Store) LoadWorkspaceState(
 		return State{}, fmt.Errorf(
 			"idehistory: load %q: %w", uri.String(), err)
 	}
-	return doc.toState(), nil
+	state := doc.toState()
+	var tdoc terminalStateDocument
+	err = s.terminals.Get(ctx, terminalStateDocumentID(uri), &tdoc)
+	if errors.Is(err, storageapi.ErrNotFound) {
+		// Documents written before terminals had their own partition
+		// carry them inline; toState already picked those up.
+		return state, nil
+	}
+	if err != nil {
+		return State{}, fmt.Errorf(
+			"idehistory: load terminals %q: %w", uri.String(), err)
+	}
+	state.Terminals = tdoc.toSessions()
+	return state, nil
 }
 
 // StoreLastSession records which workspaces are currently open so a
@@ -316,8 +370,36 @@ func (s *Store) ListWorkspaceURIs(
 			continue
 		}
 		uris = append(uris, uri)
+		if err := s.migrateInlineTerminals(ctx, uri, doc); err != nil {
+			log.WithFields(log.Fields{logging.KeyClass: "ide.idehistory"}).
+				Warnf("migrate terminals of %q: %v", uri.String(), err)
+		}
 	}
 	return uris, nil
+}
+
+// migrateInlineTerminals moves the snapshots a pre-partition document
+// carries inline into TerminalStatePartition. Without it a workspace
+// that is never reopened would keep its multi-MB document in the listed
+// partition forever. A terminal-state document that already exists is
+// newer than the inline copy and wins.
+func (s *Store) migrateInlineTerminals(
+	ctx context.Context, uri workspaceapi.URI, doc workspaceStateDocument,
+) error {
+	if len(doc.Terminals) == 0 {
+		return nil
+	}
+	tdoc := terminalStateDocument{
+		Kind:         terminalStateDocumentKind,
+		WorkspaceURI: doc.WorkspaceURI,
+		Terminals:    doc.Terminals,
+	}
+	err := s.terminals.Create(ctx, terminalStateDocumentID(uri), tdoc)
+	if err != nil && !errors.Is(err, storageapi.ErrAlreadyExists) {
+		return err
+	}
+	doc.Terminals = nil
+	return s.storage.Set(ctx, workspaceStateDocumentID(uri), doc)
 }
 
 // SubscribeEvents subscribes to ed's events and maintains the
@@ -379,8 +461,16 @@ type workspaceStateDocument struct {
 	Files        []fileDoc
 	Layout       tcomponent.TileLayout
 	HasLayout    bool
+	// Terminals is only ever read: documents predating
+	// TerminalStatePartition stored the snapshots inline.
+	Terminals []terminalDoc `bson:",omitempty"`
+	Tasks     []taskDoc
+}
+
+type terminalStateDocument struct {
+	Kind         string
+	WorkspaceURI string
 	Terminals    []terminalDoc
-	Tasks        []taskDoc
 }
 
 type fileDoc struct {
@@ -428,6 +518,31 @@ func workspaceStateDocumentID(uri workspaceapi.URI) string {
 	return workspaceStateDocumentPrefix + url.QueryEscape(uri.String())
 }
 
+func terminalStateDocumentID(uri workspaceapi.URI) string {
+	return terminalStateDocumentPrefix + url.QueryEscape(uri.String())
+}
+
+func newTerminalStateDocument(
+	uri workspaceapi.URI, terminals []TerminalSession,
+) terminalStateDocument {
+	doc := terminalStateDocument{
+		Kind:         terminalStateDocumentKind,
+		WorkspaceURI: uri.String(),
+	}
+	for _, t := range terminals {
+		doc.Terminals = append(doc.Terminals, terminalDoc(t))
+	}
+	return doc
+}
+
+func (d terminalStateDocument) toSessions() []TerminalSession {
+	var ret []TerminalSession
+	for _, t := range d.Terminals {
+		ret = append(ret, TerminalSession(t))
+	}
+	return ret
+}
+
 func newWorkspaceStateDocument(
 	uri workspaceapi.URI, state State,
 ) workspaceStateDocument {
@@ -446,9 +561,6 @@ func newWorkspaceStateDocument(
 			Cursor:   f.Cursor,
 			WindowID: f.WindowID,
 		})
-	}
-	for _, t := range state.Terminals {
-		doc.Terminals = append(doc.Terminals, terminalDoc(t))
 	}
 	for _, t := range state.Tasks {
 		doc.Tasks = append(doc.Tasks, taskDoc{

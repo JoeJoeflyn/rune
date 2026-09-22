@@ -62,6 +62,7 @@ import (
 	thandler "unstable.build/rune/internal/handler"
 	"unstable.build/rune/internal/handler/command"
 	"unstable.build/rune/internal/handler/handlertest"
+	"unstable.build/rune/internal/ide/idehistory"
 	"unstable.build/rune/internal/ide/ideshell"
 	"unstable.build/rune/internal/ide/plugin"
 	"unstable.build/rune/internal/term/vte"
@@ -4867,9 +4868,11 @@ func TestTerminalWriteOpensSavePrompt(t *testing.T) {
 	require.Nil(t, b.ex.cmd)
 
 	var doc terminalSessionDocument
-	require.NoError(t, b.ex.storage.Get(context.Background(),
+	require.NoError(t, b.ex.terminalSessionStorage().Get(context.Background(),
 		terminalSessionDocumentID("terminal-saved"), &doc))
 	require.Equal(t, "terminal-saved", doc.Name)
+	require.Equal(t, terminalSessionDocumentKind, doc.Kind,
+		"saved sessions must carry the kind the completer filters on")
 	require.Contains(t, term.CellsToString(doc.Snapshot.ActiveCells()), "terminal output")
 }
 
@@ -5089,7 +5092,7 @@ func TestTerminalWriteUsesNextAvailableName(t *testing.T) {
 	require.NoError(t, b.ex.flush(context.Background()))
 
 	var doc terminalSessionDocument
-	require.NoError(t, b.ex.storage.Get(context.Background(),
+	require.NoError(t, b.ex.terminalSessionStorage().Get(context.Background(),
 		terminalSessionDocumentID("terminal-saved-1"), &doc))
 	require.Equal(t, "terminal-saved-1", doc.Name)
 }
@@ -5113,6 +5116,39 @@ func TestTerminalSaveAndResume(t *testing.T) {
 	cursor, _, _ := session.Cursor()
 	require.Equal(t, term.Coordinates{X: 4, Y: 1}, cursor)
 	require.Equal(t, 2, session.SeekOffset())
+}
+
+// TestTerminalResumeFindsSessionsSavedBeforeThePartitionMove covers
+// sessions written when they shared the workspace-state partition.
+func TestTerminalResumeFindsSessionsSavedBeforeThePartitionMove(t *testing.T) {
+	b := newExForTesting(t, texttest.NopEditor())
+	defer b.Close()
+
+	require.NoError(t, b.ex.storage.Set(context.Background(),
+		terminalSessionDocumentID("legacy"), terminalSessionDocument{
+			Name:     "legacy",
+			Snapshot: vte.Snapshot{Schema: 1, Title: "old"},
+		}))
+	require.NoError(t, b.ex.terminalresume(context.Background(), "legacy"))
+
+	content, err := b.ex.invokeWindow().Content()
+	require.NoError(t, err)
+	tab, ok := content.(*browser.Tab)
+	require.True(t, ok)
+	session, ok := tab.Handler().(*testVte)
+	require.True(t, ok)
+	require.True(t, session.restoredSnapshot)
+
+	var moved terminalSessionDocument
+	require.NoError(t, b.ex.terminalSessionStorage().Get(context.Background(),
+		terminalSessionDocumentID("legacy"), &moved))
+	require.Equal(t, terminalSessionDocumentKind, moved.Kind)
+	require.ErrorIs(t, b.ex.storage.Get(context.Background(),
+		terminalSessionDocumentID("legacy"), &moved), storageapi.ErrNotFound,
+		"a resumed legacy session must leave the listed partition")
+
+	require.ErrorIs(t,
+		b.ex.terminalresume(context.Background(), "missing"), storageapi.ErrNotFound)
 }
 
 func TestOpenTerminalSessionsPersistAndRestore(t *testing.T) {
@@ -5158,8 +5194,8 @@ func TestTerminalSessionCompletionListsUserSavedSessions(t *testing.T) {
 	b := newExForTesting(t, texttest.NopEditor())
 	defer b.Close()
 
-	require.NoError(t, b.ex.storage.Set(context.Background(), terminalSessionDocumentID("manual"),
-		terminalSessionDocument{Kind: terminalSessionDocumentKind, Name: "manual"}))
+	require.NoError(t, b.ex.terminalnew(context.Background(), "terminal output"))
+	require.NoError(t, b.ex.terminalsave(context.Background(), "manual"))
 
 	it, _, err := b.ex.completeTerminalSessions(context.Background(), textapi.Command{})
 	require.NoError(t, err)
@@ -5237,10 +5273,21 @@ func TestExUsesSharedIDEStorage(t *testing.T) {
 	require.Equal(t, 0, storage.partitionCalls)
 	require.Same(t, storage, ex.storage)
 
+	// Saved terminal sessions live in their own partition, opened on
+	// demand and released with the ex so cached backend handles are not
+	// leaked per workspace.
+	_, _, err = ex.completeTerminalSessions(context.Background(), textapi.Command{})
+	require.NoError(t, err)
+	require.Equal(t, 1, storage.partitionCalls)
+	terminals := storage.partitions[idehistory.TerminalStatePartition]
+	require.NotNil(t, terminals)
+
 	require.NoError(t, ex.Close())
 	require.Equal(t, 0, storage.closeCalls)
+	require.Equal(t, 1, terminals.closeCalls)
 	require.NoError(t, ex.Close())
 	require.Equal(t, 0, storage.closeCalls)
+	require.Equal(t, 1, terminals.closeCalls)
 }
 
 func TestFullScreen(t *testing.T) {

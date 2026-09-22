@@ -122,9 +122,14 @@ type ex struct {
 	// CommandSubstResolver, plugin.New, the VTE) capture this value
 	// once and continue to route through whatever underlying
 	// schemeapi.Executor setExecutor last installed.
-	executor                 *currentExecutor
-	extensionsExecutor       *workspaceshell.Executor
-	storage                  storageapi.Service
+	executor           *currentExecutor
+	extensionsExecutor *workspaceshell.Executor
+	storage            storageapi.Service
+	// terminalStorage holds saved terminal sessions, whose snapshots
+	// are too large to share a partition with anything that is listed.
+	// It is opened on first use and released by Close: a firstmover
+	// partition caches backend handles once resolved.
+	terminalStorage          storageapi.Service
 	workspaceURI             workspaceapi.URI
 	closed                   bool
 	home                     bool
@@ -3026,6 +3031,12 @@ func (e *ex) Close() (ret error) {
 	e.stopPromptShader()
 	if err := e.container.Close(); err != nil {
 		ret = multierror.Append(ret, err)
+	}
+	if e.terminalStorage != nil {
+		if err := e.terminalStorage.Close(); err != nil {
+			ret = multierror.Append(ret, err)
+		}
+		e.terminalStorage = nil
 	}
 	return ret
 }
