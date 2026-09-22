@@ -153,6 +153,17 @@ var claude46Efforts = map[string]bool{
 	"max":    true,
 }
 
+// DefaultEffortFor returns the effort level the provider applies when a
+// request omits one, or an empty string when the model publishes no
+// such default. Adaptive-thinking models document high; earlier models
+// take an explicit thinking budget instead of an effort level.
+func DefaultEffortFor(model string) string {
+	if SupportsAdaptiveThinking(model) {
+		return "high"
+	}
+	return ""
+}
+
 // NormalizeEffort validates the requested effort level against the given
 // model's capabilities. It returns the effort to use (empty string means
 // omit the parameter entirely) and a human-readable warning when the

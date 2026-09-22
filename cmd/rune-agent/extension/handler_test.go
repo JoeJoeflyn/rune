@@ -103,6 +103,7 @@ func TestHandleChatRejectsAlreadyOpenDialogue(t *testing.T) {
 		dialogueStore:  newMemDialogueStore(),
 		wm:             wm,
 		n:              stubNotifications{},
+		p:              term.NopInterrupter(),
 		config:         configedit.NopConfig(),
 		skillRegistry:  skills.NewRegistry(fs, dirURI(""), nil, nil),
 		toolRegistry:   agent.NewRegistry(),
@@ -917,7 +918,7 @@ func TestPlanSkillSpawnInheritsQualifiedModel(t *testing.T) {
 		defer close(done)
 		createAgentCompletions(ctx, cancel, tx, rx, ag, spawner,
 			childEvents, skillReg, dialogueID,
-			syncComponent{mu: new(sync.Mutex), comp: dialoguetui.NewComponent(dialoguetui.ComponentConfig{}), h: &aiEditorHandler{n: stubNotifications{}, p: term.NopInterrupter()}, hintSlot: &hintSlot{}},
+			syncComponent{mu: new(sync.Mutex), comp: dialoguetui.NewComponent(dialoguetui.ComponentConfig{}), h: &aiEditorHandler{n: stubNotifications{}, p: term.NopInterrupter()}},
 			stubNotifications{}, nil, store)
 	}()
 

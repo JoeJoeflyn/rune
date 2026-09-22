@@ -34,6 +34,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"unstable.build/rune/cmd/rune-agent/agent"
 	"unstable.build/rune/cmd/rune-agent/agent/agentools"
@@ -449,6 +450,7 @@ func newCommandEventHandler(
 	}
 	ret.hookRunner = hooks.NewRunner(hooksCfg, executor, noti, cwd.Path())
 
+	hostConfig := w.Config(ctx)
 	ret.cfg = defaultComponentCfg
 	ret.cfg.MarkdownConfig.Parser = w.Parser(ctx)
 	backgroundAttr, err := config.GetAttributes(pconfig, "background_attr")
@@ -569,23 +571,6 @@ func newCommandEventHandler(
 		ret.cfg.InputBackgroundColor = inputBgColor
 	}
 
-	ret.contextHintCfg = contextHintConfig{
-		labelAttr: term.Attributes{Bg: backgroundAttr.Bg, Attrs: term.AttrDim},
-		valueAttr: term.Attributes{Bg: backgroundAttr.Bg, Fg: term.ColorRed},
-	}
-	contextHintAttr, err := config.GetAttributes(pconfig, "context_hint_attr")
-	if err != nil {
-		if err != config.ErrNotFound {
-			slog.Warn("get 'context_hint_attr' from extension config", "error", err)
-		}
-	} else {
-		ret.contextHintCfg.valueAttr = contextHintAttr
-		ret.contextHintCfg.valueAttr.Bg = backgroundAttr.Bg
-		ret.contextHintCfg.labelAttr = contextHintAttr
-		ret.contextHintCfg.labelAttr.Bg = backgroundAttr.Bg
-		ret.contextHintCfg.labelAttr.Attrs |= term.AttrDim
-	}
-
 	if attr, err := config.GetAttributes(pconfig, "completion_matched_text_attr"); err != nil {
 		if err != config.ErrNotFound {
 			slog.Warn("get 'completion_matched_text_attr' from extension config", "error", err)
@@ -621,6 +606,8 @@ func newCommandEventHandler(
 	} else {
 		ret.cfg.InlineAttachmentAttr = attr
 	}
+	ret.cfg.StatusBar = statusBarConfig(pconfig, hostConfig, noti)
+	ret.cfg.StatusBar.DurationPrecision = ret.cfg.DurationPrecision
 
 	ret.queryDefaultModel = queryModelAlias
 
@@ -630,7 +617,7 @@ func newCommandEventHandler(
 
 	// Resolve the configured editor for composing messages. On error the
 	// compose editor stays nil and dialoguetui falls back to its inputbox.
-	if editor, cerr := extutil.Editor(ret.clip, w.Config(ctx)); cerr != nil {
+	if editor, cerr := extutil.Editor(ret.clip, hostConfig); cerr != nil {
 		slog.Warn("resolve dialogue editor, using inputbox", "error", cerr)
 	} else {
 		ret.cfg.Editor = editor
@@ -729,7 +716,6 @@ type aiEditorHandler struct {
 	defaultModel        string
 	cfg                 dialoguetui.ComponentConfig
 	backgroundAttr      term.Attributes
-	contextHintCfg      contextHintConfig
 	dialogueStore       dialoguemanager.Store
 	queryAgent          *agent.Agent
 	queryDefaultModel   string
@@ -1182,8 +1168,13 @@ func (h *aiEditorHandler) Close() error {
 	return h.mcpManager.Close()
 }
 
+// newDialogueComponent builds the transient dialogue used by the `?`
+// query popup. The popup sizes itself to its content and has no model
+// switching of its own, so it renders without a status bar.
 func (h *aiEditorHandler) newDialogueComponent() *dialoguetui.Component {
-	return dialoguetui.NewComponent(h.cfg)
+	cfg := h.cfg
+	cfg.StatusBar.Enabled = false
+	return dialoguetui.NewComponent(cfg)
 }
 
 func (h *aiEditorHandler) newAgentShell() textapi.REPLHandler {
@@ -1284,7 +1275,6 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 
 	// Build command adapter with session-aware overrides.
 	var comp *dialoguetui.Component
-	hs := &hintSlot{} // shared with syncComponent for hint preservation during compaction
 	adapter := newCommandAdapter(commandAdapterDeps{
 		handler:       cmdShell,
 		dialogueID:    d.ID,
@@ -1306,7 +1296,6 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 		reviewContext: h.reviewContextLines,
 		mu:            mu,
 		comp:          &comp,
-		hintSlot:      hs,
 		interrupter:   h.p,
 	})
 
@@ -1380,7 +1369,7 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 	spawner.SetHooks(h.hookRunner)
 	spawner.SetAttribution(h.attribution)
 
-	syncComp := syncComponent{mu: mu, comp: comp, h: h, hintSlot: hs}
+	syncComp := syncComponent{mu: mu, comp: comp, h: h}
 	h.openChats.Store(d.ID, syncComp)
 
 	chatAgent := agent.NewAgent(
@@ -1407,6 +1396,16 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 		chatAgent.SetMaxOutputTokens(maxTokens)
 	}
 	adapter.agent = chatAgent
+	syncComp.setStatusBarState(func(s *dialoguetui.StatusBarState) {
+		s.Conversation = d.ID
+	})
+	adapter.syncStatusBarModel()
+	// Token counting walks the whole replayed history, so keep it off
+	// the path that opens the tab.
+	go debug.CapturePanicReport(func() {
+		syncComp.seedContextTokens(h.llmSvc, chatAgent.ModelEntry(), d.Messages)
+		_ = h.p.Interrupt(ctx)
+	})
 	h.openChatAgents.Store(d.ID, chatAgent)
 	h.openChatTx.Store(d.ID, tx)
 	h.subscribeTools(d.ID, len(baseTools), chatRegistry, cmdRegistry)
@@ -1421,6 +1420,7 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 
 	bhandler := browserapi.FuncHandler(handler, func() error {
 		cancel()
+		_ = comp.Close()
 		h.unsubscribeTools(d.ID)
 		h.openChatAgents.Delete(d.ID)
 		h.openChatTx.Delete(d.ID)
@@ -1489,7 +1489,7 @@ func (h *aiEditorHandler) handleQuery(cmd textapi.Command) error {
 	msg := llmapi.Message{Content: query, Role: llmapi.RoleUser}
 	addMessage(comp, msg, nil)
 
-	syncComp := syncComponent{mu: mu, comp: comp, h: h, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: h}
 
 	qrx := make(chan dialoguetui.SubmitMessage)
 	handler, msgRx := h.wrapDialogueHandler(ctx, syncComp, dhandler, qrx, "")
@@ -2157,7 +2157,14 @@ func createAgentCompletions(
 		case <-ctx.Done():
 			return
 		}
-		hint := syncComp.addStatusHint()
+		turnStart := time.Now()
+		syncComp.beginTurn(turnStart)
+		endTurn := syncComp.endTurn
+		setPhase := func(p string) {
+			syncComp.setStatusBarState(func(s *dialoguetui.StatusBarState) {
+				s.Phase = p
+			})
+		}
 		upsRes := ag.Hooks().Run(req.ctx, hooks.Payload{
 			SessionID:     id,
 			Cwd:           ag.Workspace(),
@@ -2179,7 +2186,7 @@ func createAgentCompletions(
 			case tx <- dialoguetui.MessageEvent{Type: dialoguetui.MessageEventBreak}:
 			case <-ctx.Done():
 			}
-			syncComp.removeStatusHint(hint)
+			endTurn()
 			continue
 		}
 
@@ -2220,7 +2227,7 @@ func createAgentCompletions(
 					case <-ctx.Done():
 					}
 					_, _ = noti.Notify(browserapi.LevelError, "skill %s: %v", skill.Name, skillErr)
-					syncComp.removeStatusHint(hint)
+					endTurn()
 					continue
 				}
 				it = handle.Events
@@ -2239,7 +2246,6 @@ func createAgentCompletions(
 			}
 			it = ag.Run(req.ctx, id, req.modelText, runOpts...)
 		}
-		var lastUsage agent.Event // track last usage event for post-turn hint
 		func() {
 			defer it.Close() //nolint:errcheck
 			breakSent := false
@@ -2284,11 +2290,11 @@ func createAgentCompletions(
 						return
 					}
 				case agent.EventInferenceStart:
-					hint.setPhase(phaseSending)
+					setPhase(phaseSending)
 				case agent.EventInferenceReady:
-					hint.setPhase(phaseThinking)
+					setPhase(phaseThinking)
 				case agent.EventFirstContent:
-					hint.setPhase(phaseReceiving)
+					setPhase(phaseReceiving)
 				case agent.EventReasoning:
 					if ev.Reasoning == "" {
 						continue
@@ -2314,7 +2320,7 @@ func createAgentCompletions(
 						return
 					}
 				case agent.EventToolsStart:
-					hint.setPhase(phaseToolCalling)
+					setPhase(phaseToolCalling)
 				case agent.EventToolCall:
 					select {
 					case tx <- dialoguetui.MessageEvent{
@@ -2353,7 +2359,7 @@ func createAgentCompletions(
 						return
 					}
 				case agent.EventRateLimitWarning:
-					hint.setPhase(phaseRateLimited)
+					setPhase(phaseRateLimited)
 					if ev.RateLimit != nil {
 						select {
 						case tx <- dialoguetui.MessageEvent{
@@ -2365,13 +2371,17 @@ func createAgentCompletions(
 						}
 					}
 				case agent.EventUsageUpdate:
-					lastUsage = ev
-					u := ev.Usage
-					hint.setTokens(u.TokensSent, u.TokensReceived)
+					syncComp.setStatusBarState(func(s *dialoguetui.StatusBarState) {
+						s.Usage = ev.Usage
+						s.ContextTokens = ev.Context.TokensSent + ev.Context.TokensReceived
+						if ev.Context.Window > 0 {
+							s.ContextWindow = ev.Context.Window
+						}
+					})
 				case agent.EventCompacting:
-					hint.setPhase(phaseCompacting)
+					setPhase(phaseCompacting)
 				case agent.EventCompacted:
-					hint.setPhase(phaseSending)
+					setPhase(phaseSending)
 					onCompacted(id)
 					if ev.ArchivedDialogueID != "" {
 						select {
@@ -2467,10 +2477,7 @@ func createAgentCompletions(
 				}
 			}
 		}()
-		syncComp.removeStatusHint(hint)
-		if lastUsage.Context.TokensSent > 0 {
-			syncComp.setContextHint(lastUsage)
-		}
+		endTurn()
 		// Signal that the agent is idle; the handler will drain
 		// any queued follow-up messages at this point.
 		select {

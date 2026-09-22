@@ -17,47 +17,33 @@
 package extension
 
 import (
+	"log/slog"
 	"sync"
+	"time"
 
-	"github.com/unstablebuild/rune-go-sdk/component"
-	"github.com/unstablebuild/rune-go-sdk/term"
-	"github.com/unstablebuild/rune-go-sdk/tui"
-	"unstable.build/rune/cmd/rune-agent/agent"
+	"github.com/unstablebuild/rune-go-sdk/api/llmapi"
 	"unstable.build/rune/cmd/rune-agent/dialogue/dialoguetui"
 )
 
+// Turn phases reported by the status bar's Status element. The bar
+// draws them as-is and colours them by looking the phase up in its
+// status palette, so these must match the palette's keys.
+const (
+	phaseSending     = "SENDING"
+	phaseThinking    = "REASONING"
+	phaseReceiving   = "RECEIVING"
+	phaseToolCalling = "EXECUTING"
+	phaseCompacting  = "COMPACTING"
+	phaseRateLimited = "ERROR"
+)
+
 // syncComponent wraps a dialoguetui.Component with the mutex that guards
-// every UI mutation. Helper methods (addStatusHint, removeStatusHint,
-// setContextHint) take the lock so callers do not have to coordinate
-// access manually.
+// every UI mutation. Helper methods take the lock so callers do not have
+// to coordinate access manually.
 type syncComponent struct {
-	mu       *sync.Mutex
-	comp     *dialoguetui.Component
-	h        *aiEditorHandler
-	hintSlot *hintSlot // shared across copies, protected by mu
-}
-
-// hintSlot stores the active hint component so that compactFn can
-// re-add it after Reset + message replay during compaction.
-type hintSlot struct {
-	comp tui.Component
-	conf component.SpanConfig
-}
-
-func (s syncComponent) addStatusHint() *statusHint {
-	hint := newStatusHint(s.h.p, s.h.backgroundAttr, s.h.cfg.DurationPrecision, s.comp.TaskActiveForm)
-	bg := component.WithBackground(hint, term.NewCell(' ', 1, s.h.backgroundAttr))
-	conf := component.SpanConfig{
-		ContentAlignment: component.AlignmentLeft,
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.comp.AddReceiveMessageHint(bg, conf)
-	s.hintSlot.comp = bg
-	s.hintSlot.conf = conf
-
-	return hint
+	mu   *sync.Mutex
+	comp *dialoguetui.Component
+	h    *aiEditorHandler
 }
 
 // completionOpen reports whether the chat's '#' completion band is
@@ -68,25 +54,63 @@ func (s syncComponent) completionOpen() bool {
 	return s.comp.CompletionOpen()
 }
 
-func (s syncComponent) removeStatusHint(hint *statusHint) {
-	_ = hint.Close()
-
+// setStatusBarState mutates the chat's status bar state.
+func (s syncComponent) setStatusBarState(fn func(*dialoguetui.StatusBarState)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.comp.RemoveReceiveMessageHint()
-	s.hintSlot.comp = nil
+	s.comp.SetStatusBarState(fn)
 }
 
-func (s syncComponent) setContextHint(ev agent.Event) {
-	hint := &contextHint{
-		segments: buildContextHintSegments(ev, s.h.contextHintCfg, s.h.cfg.DurationPrecision),
-	}
-	bg := component.WithBackground(hint, term.NewCell(' ', 1, s.h.backgroundAttr))
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// beginTurn moves the bar into the running state. Usage is per turn and
+// starts over, but context occupancy is not: it accumulates across the
+// conversation and only the agent can report it, so clearing it here
+// would leave the gauge empty until the first completion came back.
+func (s syncComponent) beginTurn(start time.Time) {
+	s.setStatusBarState(func(st *dialoguetui.StatusBarState) {
+		st.Active = true
+		st.Phase = phaseSending
+		st.ActiveForm = ""
+		st.TurnStart = start
+		st.Usage = llmapi.DialogueUsage{}
+	})
+}
 
-	s.comp.AddReceiveMessageHint(bg, component.SpanConfig{
-		ContentAlignment: component.AlignmentLeft,
+// endTurn returns the bar to idle, keeping whatever the turn reported
+// so its result stays readable until the next one starts.
+func (s syncComponent) endTurn() {
+	s.setStatusBarState(func(st *dialoguetui.StatusBarState) {
+		st.Active = false
+		st.Phase = ""
+		st.ActiveForm = ""
+	})
+}
+
+// seedContextTokens fills the context gauge from a reopened
+// conversation's replayed history. Until the first completion reports
+// usage the gauge would otherwise read empty, which is
+// indistinguishable from a chat that has not started yet. The count is
+// the same local estimate the agent falls back to on its first
+// iteration, so it is superseded by the first real usage report.
+func (s syncComponent) seedContextTokens(
+	svc llmapi.Service, entry llmapi.ModelEntry, msgs []llmapi.Message,
+) {
+	if len(msgs) == 0 {
+		return
+	}
+	n, err := svc.CountTokens(entry, msgs)
+	if err != nil {
+		slog.Warn("count tokens for status bar context gauge", "error", err)
+		return
+	}
+	if n <= 0 {
+		return
+	}
+	s.setStatusBarState(func(st *dialoguetui.StatusBarState) {
+		if st.ContextTokens == 0 {
+			st.ContextTokens = n
+		}
+		if entry.ContextWindow > 0 {
+			st.ContextWindow = entry.ContextWindow
+		}
 	})
 }

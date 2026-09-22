@@ -305,7 +305,7 @@ func newPromptHandler(t *testing.T, opts promptHandlerOpts) tui.Handler {
 	})
 
 	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, msgRx := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	var wg sync.WaitGroup
@@ -481,7 +481,7 @@ func agentE2EHandler(t *testing.T, svc *llmtest.Service, workspaceDir string, ls
 	})
 
 	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, msgRx := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	var wg sync.WaitGroup
@@ -573,7 +573,7 @@ func stopReasonE2EHandler(t *testing.T, svc *llmtest.Service) tui.Handler {
 	})
 
 	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, msgRx := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	childEvents := make(chan agent.ChildEvent)
@@ -678,7 +678,7 @@ func subAgentSpawnE2EHandler(
 	})
 
 	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, msgRx := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	go debug.CapturePanicReport(func() {
@@ -735,7 +735,7 @@ func maxTokensE2EHandler(t *testing.T, model llmapi.ModelEntry) (tui.Handler, *a
 	)
 
 	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner, hintSlot: &hintSlot{}}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, _ := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	t.Cleanup(cancel)

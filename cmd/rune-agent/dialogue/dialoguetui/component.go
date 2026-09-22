@@ -168,6 +168,13 @@ type Component struct {
 	attachArea  component.Virtual[tui.Component]
 	attachTabs  tcomponent.Tabs
 	attachments []Attachment
+	// barArea is the status bar's dedicated bottom row. It is empty
+	// when the bar is disabled.
+	barArea   component.Virtual[tui.Component]
+	statusBar *StatusBar
+	// shadedBar wraps the status bar so a configured effect can run
+	// over it for as long as a turn does.
+	shadedBar shadedBar
 	// nextKey allocates draft-local attachment keys. It only ever
 	// advances, so removing a chip never hands its key to a later
 	// attachment and re-targets a stale inline link.
@@ -196,8 +203,6 @@ type Component struct {
 	tail        *component.ListNode
 	tailMd      *markdown.Component // reusable markdown component
 	tailHandler *mdhandler.Handler  // reusable handler wrapping tailMd
-	// receive hint
-	hint *component.ListNode
 	// tool call tracking via Turn
 	currentTurn *Turn
 	turnNode    *component.ListNode
@@ -219,7 +224,6 @@ type Component struct {
 	activePromptNode *component.ListNode
 	promptBodyNode   *component.ListNode // optional markdown body above prompt
 	promptResult     chan<- []string
-	savedHintComp    component.Responsive // hint saved during active prompt, restored on dismiss
 	// prompt text input state (active when user selects a RequiresInput option)
 	promptInput     *inputbox.Handler   // text input box for feedback
 	promptInputNode *component.ListNode // node in messages list for the input box
@@ -294,6 +298,19 @@ func (c *Component) Init(cfg ComponentConfig) {
 	c.attachTabs.Init()
 	c.attachTabs.SetBorder(false)
 	c.attachArea.C = &c.attachTabs
+
+	if cfg.StatusBar.Enabled {
+		// The interrupter only reaches the Component once Handler
+		// wraps it, which is where the repaint ticker starts.
+		c.statusBar = NewStatusBar(cfg.StatusBar, nil)
+		c.shadedBar.root = c.statusBar
+		c.shadedBar.name = cfg.StatusBar.Shader
+		c.shadedBar.defAttr = term.Attributes{
+			Fg: cfg.StatusBar.ForegroundColor,
+			Bg: cfg.StatusBar.BackgroundColor,
+		}
+		c.barArea.C = &c.shadedBar
+	}
 }
 
 func (c *Component) newInputBackend(cfg ComponentConfig) Input {
@@ -356,6 +373,9 @@ func (c *Component) Draw(w term.Writer) {
 		c.attachArea.Draw(&vw)
 	}
 	c.boxArea.Draw(&vw)
+	if c.statusBar != nil {
+		c.barArea.Draw(&vw)
+	}
 }
 
 // SetCompletion installs the '#' completion overlay above the compose box.
@@ -395,12 +415,13 @@ func (c *Component) Resize(width, height int) {
 // available MaxCols; the messages region takes the remaining rows.
 func (c *Component) relayout() {
 	width, height := c.width, c.height
+	barH := c.barHeight()
 	boxW := c.boxWidth(width)
 	boxH := c.boxHeight(boxW)
 	c.layoutBoxH = boxH
 
-	if boxH > height {
-		boxH = height
+	if boxH > height-barH {
+		boxH = height - barH
 	}
 	if boxH < 0 {
 		boxH = 0
@@ -411,15 +432,15 @@ func (c *Component) relayout() {
 		boxW = width - boxX
 	}
 	attachH := 0
-	if len(c.attachments) > 0 && height-boxH > 0 {
+	if len(c.attachments) > 0 && height-barH-boxH > 0 {
 		attachH = 1
 	}
 	compH := 0
 	if c.completion != nil {
-		compH = max(0, min(completionMaxRows, height-boxH-attachH-1))
+		compH = max(0, min(completionMaxRows, height-barH-boxH-attachH-1))
 	}
 	c.completionRows = compH
-	msgH := height - boxH - attachH - compH
+	msgH := height - barH - boxH - attachH - compH
 
 	c.msgArea.Move(term.Coordinates{})
 	c.msgArea.Resize(width, msgH)
@@ -431,6 +452,10 @@ func (c *Component) relayout() {
 	c.attachArea.Resize(boxW, attachH)
 	c.boxArea.Move(term.Coordinates{X: boxX, Y: msgH + compH + attachH})
 	c.boxArea.Resize(boxW, boxH)
+	if c.statusBar != nil {
+		c.barArea.Move(term.Coordinates{Y: height - barH})
+		c.barArea.Resize(width, barH)
+	}
 	c.layoutMsgH = c.messagesContentHeight()
 }
 
@@ -681,7 +706,7 @@ func (c *Component) AddSendMessageAttachments(msg string, atts []Attachment) {
 	if c.cfg.SendMessageBottomPad > 0 {
 		c.messages.PushBack(spacer(c.cfg.SendMessageBottomPad))
 	}
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // queuedPrefix returns the prefix used for queued message rendering.
@@ -707,7 +732,7 @@ func (c *Component) AddQueuedMessage(msg string) {
 	node := new(component.ListNode)
 	*node = c.messages.PushBack(strComp)
 	c.queuedNodes = append(c.queuedNodes, node)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // RemoveLastQueuedMessage removes the most recently added queued message
@@ -767,7 +792,7 @@ func (c *Component) AddSendMessageMarkdown(msg string) {
 	if c.cfg.SendMessageBottomPad > 0 {
 		c.messages.PushBack(spacer(c.cfg.SendMessageBottomPad))
 	}
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddReasoningChunk adds a reasoning text chunk. Reasoning is rendered
@@ -785,7 +810,7 @@ func (c *Component) AddReasoningChunk(chunk string) {
 	// holds a NopResponsive and must be re-attached below.
 	if c.reasoningVisible && c.reasoningTailMd != nil {
 		if err := c.reasoningTailMd.Init(c.reasoningMsg.String()); err == nil {
-			c.moveHintToBack()
+			c.moveTrailingToBack()
 			return
 		}
 		// Parse error on previously-working content: fall through to recreate.
@@ -822,7 +847,7 @@ func (c *Component) AddReasoningChunk(chunk string) {
 		*c.reasoningTail = c.messages.PushBack(component.NopResponsive())
 	}
 	c.ensureReasoningAnnotation()
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // reasoningMarkdownConfig derives a markdown config for reasoning text
@@ -1023,7 +1048,7 @@ func (c *Component) AddReceiveMessageChunk(chunk string) {
 	// Fast path: re-parse in-place on the existing component.
 	if c.tailMd != nil {
 		if err := c.tailMd.Init(c.msg.String()); err == nil {
-			c.moveHintToBack()
+			c.moveTrailingToBack()
 			return
 		}
 		// Parse error on previously-working content: fall through to recreate.
@@ -1053,7 +1078,7 @@ func (c *Component) AddReceiveMessageChunk(chunk string) {
 	}
 	resp = component.NewSpan(resp, c.cfg.ReceiveMessageSpanConfig)
 	*c.tail = c.messages.PushBack(resp)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddErrorMessage adds an inline error message to the message list.
@@ -1072,7 +1097,7 @@ func (c *Component) AddErrorMessage(msg string) {
 		})
 	errComp = component.NewSpan(errComp, c.cfg.ErrorSpanConfig)
 	c.messages.PushBack(errComp)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddWarningMessage adds an inline warning message to the message list.
@@ -1091,7 +1116,7 @@ func (c *Component) AddWarningMessage(msg string) {
 		})
 	warnComp = component.NewSpan(warnComp, c.cfg.WarningSpanConfig)
 	c.messages.PushBack(warnComp)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddCommand starts an asynchronous command output drain. It adds an
@@ -1150,7 +1175,7 @@ func (c *Component) AddCommandOutput(item component.Responsive) {
 	defer c.restoreScroll(maxOff, scrolled)
 	wrapped := component.NewSpan(item, c.cfg.CommandOutputSpanConfig)
 	c.messages.PushBack(wrapped)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 func (c *Component) promptAnchorNode() *component.ListNode {
@@ -1171,7 +1196,7 @@ func (c *Component) AddMemoryRecall(memories []MemoryRecallEntry, duration time.
 	defer c.restoreScroll(maxOff, scrolled)
 	c.ensureCurrentTurn()
 	c.currentTurn.AddMemoryRecall(memories, duration)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // UpdateTaskProgress upserts a task in the progress checklist.
@@ -1187,7 +1212,10 @@ func (c *Component) UpdateTaskProgress(entry ProgressTaskEntry) {
 		*c.progressNode = c.messages.PushBack(c.progress)
 	}
 	c.progress.UpdateTask(entry)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
+	c.SetStatusBarState(func(s *StatusBarState) {
+		s.ActiveForm = c.TaskActiveForm()
+	})
 }
 
 // TaskActiveForm returns the active task text to use in the status hint.
@@ -1213,7 +1241,7 @@ func (c *Component) AddToolCall(id, name, args, summary string) {
 
 	c.ensureCurrentTurn()
 	c.currentTurn.AddToolCall(id, name, args, summary)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // CompleteToolCall replaces the running tool indicator with a completed
@@ -1229,7 +1257,7 @@ func (c *Component) CompleteToolCall(id, name, args, summary, output string, isE
 		c.currentTurn.AddToolCall(id, name, args, summary)
 	}
 	c.currentTurn.CompleteToolCall(id, name, args, summary, output, isError)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddChildToolCall adds a tool call nested under a parent tool call
@@ -1239,7 +1267,7 @@ func (c *Component) AddChildToolCall(parentID, id, name, args, summary string) {
 	defer c.restoreScroll(maxOff, scrolled)
 	c.ensureCurrentTurn()
 	c.currentTurn.AddChildToolCall(parentID, id, name, args, summary)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // CompleteChildToolCall completes a child tool call nested under a
@@ -1251,7 +1279,7 @@ func (c *Component) CompleteChildToolCall(parentID, id, name, args, summary, out
 		return
 	}
 	c.currentTurn.CompleteChildToolCall(parentID, id, name, args, summary, output, isError)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // AddChildResult adds a sub-agent result leaf node under a parent
@@ -1263,7 +1291,7 @@ func (c *Component) AddChildResult(parentID, output string, isError bool) {
 		return
 	}
 	c.currentTurn.AddChildResult(parentID, output, isError)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 }
 
 // SetToolStartTime sets the start time for a tool call, used for live
@@ -1398,43 +1426,19 @@ func (c *Component) restoreScroll(oldMaxOffset int, wasScrolledUp bool) {
 	}
 }
 
-// AddReceiveMessageHint adds a hint in the UI that
-// a message is about to be received.
-// The hint remains visible while content streams in (moved to the
-// back of the list automatically). Remove it with RemoveReceiveMessageHint.
-func (c *Component) AddReceiveMessageHint(
-	hint tui.Component, config component.SpanConfig,
+// AddTranscriptRow appends a single-row component to the end of the
+// transcript. It is the post-turn context record's entry point; the
+// row is permanent and scrolls with the conversation.
+func (c *Component) AddTranscriptRow(
+	row tui.Component, config component.SpanConfig,
 ) {
 	maxOff, scrolled := c.scrollState()
 	defer c.restoreScroll(maxOff, scrolled)
-	if c.hint != nil {
-		c.RemoveReceiveMessageHint()
-	}
-	c.hint = new(component.ListNode)
-	hintSpan := component.NewSpan(hint, config)
-	resp := component.FuncResponsive(hintSpan, func(width int) int {
+	span := component.NewSpan(row, config)
+	resp := component.FuncResponsive(span, func(width int) int {
 		return 1
 	})
-	*c.hint = c.messages.PushBack(resp)
-}
-
-// RemoveReceiveMessageHint idempotently removes a hint
-// from the UI previously added via AddReceiveMessageHint.
-func (c *Component) RemoveReceiveMessageHint() {
-	// Only clear the saved hint when no prompt is active.
-	// When a prompt is showing, the hint lives in savedHintComp
-	// and will be restored by removePrompt; clearing it here
-	// would silently destroy the hint.
-	if c.activePrompt == nil {
-		c.savedHintComp = nil
-	}
-	if c.hint == nil {
-		return
-	}
-
-	node := c.hint
-	c.messages.Remove(node)
-	c.hint = nil
+	c.messages.PushBack(resp)
 }
 
 // Height satisfies component.Responsive.
@@ -1450,29 +1454,19 @@ func (c *Component) Height(width int) (height int) {
 // This does not reset the InputBox, this
 // can be performed, if desired, via Component.Input().Reset().
 func (c *Component) Reset() {
-	c.RemoveReceiveMessageHint()
 	c.resetContent()
 }
 
-// ResetPreservingHint resets all messages like Reset but keeps the
-// receive-message hint visible. Use this during auto-compaction so
-// that the progress/animation hint survives the message replay.
-func (c *Component) ResetPreservingHint() {
-	var savedHint component.Responsive
-	if c.hint != nil {
-		savedHint = c.messages.Remove(c.hint)
-		c.hint = nil
+// Close releases the resources owned by this Component.
+func (c *Component) Close() error {
+	if c.statusBar != nil {
+		c.shadedBar.setRunning(false, c.interrupter)
+		return c.statusBar.Close()
 	}
-	c.savedHintComp = nil
-	c.resetContent()
-	if savedHint != nil {
-		c.hint = new(component.ListNode)
-		*c.hint = c.messages.PushBack(savedHint)
-	}
+	return nil
 }
 
 // resetContent clears turns, reasoning, progress, and the message list.
-// The hint must be handled by the caller before invoking this method.
 func (c *Component) resetContent() {
 	c.closeAllTurns()
 	c.currentTurn = nil
@@ -1519,13 +1513,6 @@ func (c *Component) AddPrompt(
 		c.removePrompt()
 	}
 
-	// Save and hide the hint while the prompt is active. It will be
-	// restored automatically when the prompt is dismissed or selected.
-	if c.hint != nil {
-		c.savedHintComp = c.messages.Remove(c.hint)
-		c.hint = nil
-	}
-
 	// Render optional body as markdown before the selection.
 	if body != "" {
 		var resp component.Responsive
@@ -1563,7 +1550,7 @@ func (c *Component) AddPrompt(
 		*c.activePromptNode = c.messages.PushBack(qComp)
 		c.freeInputPrompt = true
 		c.promptResult = resultCh
-		c.moveHintToBack()
+		c.moveTrailingToBack()
 		return oldCh
 	}
 
@@ -1576,7 +1563,7 @@ func (c *Component) AddPrompt(
 	c.promptResult = resultCh
 	c.activePromptNode = new(component.ListNode)
 	*c.activePromptNode = c.messages.PushBack(sel)
-	c.moveHintToBack()
+	c.moveTrailingToBack()
 	return oldCh
 }
 
@@ -1597,13 +1584,6 @@ func (c *Component) removePrompt() {
 	c.activePromptNode = nil
 	c.promptResult = nil
 	c.freeInputPrompt = false
-
-	// Restore the hint that was saved when the prompt was added.
-	if c.savedHintComp != nil {
-		c.hint = new(component.ListNode)
-		*c.hint = c.messages.PushBack(c.savedHintComp)
-		c.savedHintComp = nil
-	}
 }
 
 // HasFreeInputPrompt returns true if a free-form text prompt is active.
@@ -1789,6 +1769,38 @@ func (c *Component) boxWidth(width int) int {
 // always leave visible so a growing input never hides the conversation.
 const minMessagesRows = 2
 
+// barHeight returns the rows reserved for the status bar. The bar
+// yields its row rather than starving the transcript on tiny viewports.
+func (c *Component) barHeight() int {
+	if c.statusBar == nil || c.height <= minMessagesRows {
+		return 0
+	}
+	return 1
+}
+
+// SetStatusBarState applies fn to the status bar state. It is a no-op
+// when the bar is disabled.
+func (c *Component) SetStatusBarState(fn func(*StatusBarState)) {
+	if c.statusBar == nil {
+		return
+	}
+	c.statusBar.SetState(fn)
+	if c.shadedBar.setRunning(c.statusBar.State().Active, c.interrupter) {
+		// The effect only repaints on its own ticker, so the frame
+		// that starts or ends it needs a wakeup of its own.
+		_ = c.interrupter.Interrupt(context.Background())
+	}
+}
+
+// StatusBarState returns a copy of the status bar state, or the zero
+// value when the bar is disabled.
+func (c *Component) StatusBarState() StatusBarState {
+	if c.statusBar == nil {
+		return StatusBarState{}
+	}
+	return c.statusBar.State()
+}
+
 // boxHeight returns the compose box height capped so it never consumes
 // the whole viewport. The editor's frame and content can report a height
 // taller than the screen for long buffers; without a cap the messages row
@@ -1799,7 +1811,7 @@ func (c *Component) boxHeight(width int) int {
 	if c.height <= 0 {
 		return h
 	}
-	maxH := c.height - minMessagesRows
+	maxH := c.height - minMessagesRows - c.barHeight()
 	const minH = 3 // top border + one content row + bottom border
 	if maxH < minH {
 		maxH = minH
@@ -1856,15 +1868,11 @@ func formatToolArgs(jsonArgs string) string {
 	return b.String()
 }
 
-func (c *Component) moveHintToBack() {
+// moveTrailingToBack keeps the progress checklist and the queued
+// messages at the end of the transcript as new content streams in.
+func (c *Component) moveTrailingToBack() {
 	c.moveProgressToBack()
 	c.moveQueuedToBack()
-	if c.hint == nil {
-		return
-	}
-	hintResp := c.messages.Remove(c.hint)
-	c.hint = new(component.ListNode)
-	*c.hint = c.messages.PushBack(hintResp)
 }
 
 func (c *Component) moveQueuedToBack() {

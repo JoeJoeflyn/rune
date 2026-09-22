@@ -19,9 +19,11 @@ package extutil
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/unstablebuild/rune-go-sdk/api/config"
 	"github.com/unstablebuild/rune-go-sdk/clipboard"
+	"github.com/unstablebuild/rune-go-sdk/term"
 	"unstable.build/rune/internal/browser"
 	"unstable.build/rune/internal/component"
 	"unstable.build/rune/internal/text"
@@ -81,6 +83,99 @@ func WindowManagerFrame(cfg config.Config) (bool, error) {
 		ret = browser.DefaultConfig().Frame
 	}
 	return ret, nil
+}
+
+// GetColorRGB expands c into the RGB value the host draws it with under
+// the theme named by gui.default_theme.
+//
+// An extension hands the host named colors and lets it resolve them
+// against the theme, so this is only for color arithmetic, which has to
+// happen on hex values. Blending the W3C defaults this process would
+// otherwise resolve a name to produces colors that clash with the
+// themed ones drawn beside them. A host with no theme configured leaves
+// c alone, since nothing here knows better than the terminal does.
+func GetColorRGB(cfg config.Config, c term.Color) (term.Color, error) {
+	if !c.Valid() || c.IsRGB() {
+		return c, nil
+	}
+	theme, err := colorTheme(cfg)
+	if err != nil || theme == nil {
+		return c, err
+	}
+	for _, name := range colorNames(c) {
+		value, err := theme.GetColor(name)
+		if err != nil {
+			if err != config.ErrNotFound {
+				return c.TrueColor(), fmt.Errorf(
+					"failed to get '%s' from theme config: %v", name, err)
+			}
+			continue
+		}
+		if value.Valid() {
+			// A theme slot naming another color takes that color's own
+			// value rather than whatever the theme maps it to, matching
+			// how the host applies a theme in one pass.
+			return value.TrueColor(), nil
+		}
+	}
+	return c.TrueColor(), nil
+}
+
+// colorNames returns every W3C name for c, sorted. A palette slot can
+// carry several ("gray" and "grey", "aqua" and "cyan") and a theme only
+// has to name one of them, so the caller tries all of them in an order
+// that does not change from run to run.
+func colorNames(c term.Color) []string {
+	var ret []string
+	for name, named := range term.GetColorNames() {
+		if named == c {
+			ret = append(ret, name)
+		}
+	}
+	slices.Sort(ret)
+	return ret
+}
+
+// colorTheme returns the gui.themes entry named by gui.default_theme,
+// or nil when the host has no theme configured.
+func colorTheme(cfg config.Config) (config.Config, error) {
+	guiConfig, err := cfg.GetConfig("gui")
+	if err != nil {
+		if err != config.ErrNotFound {
+			return nil, fmt.Errorf("failed to get 'gui' from config: %v", err)
+		}
+		return nil, nil
+	}
+
+	name, err := guiConfig.GetString("default_theme")
+	if err != nil {
+		if err != config.ErrNotFound {
+			return nil, fmt.Errorf(
+				"failed to get 'default_theme' from config: %v", err)
+		}
+		return nil, nil
+	}
+	if name == "" {
+		return nil, nil
+	}
+
+	themes, err := guiConfig.GetConfig("themes")
+	if err != nil {
+		if err != config.ErrNotFound {
+			return nil, fmt.Errorf("failed to get 'themes' from config: %v", err)
+		}
+		return nil, nil
+	}
+
+	theme, err := themes.GetConfig(name)
+	if err != nil {
+		if err != config.ErrNotFound {
+			return nil, fmt.Errorf(
+				"failed to get 'themes.%s' from config: %v", name, err)
+		}
+		return nil, nil
+	}
+	return theme, nil
 }
 
 // Clipboard returns the configured clipboard.
