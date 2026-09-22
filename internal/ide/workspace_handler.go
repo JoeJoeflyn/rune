@@ -1487,8 +1487,10 @@ func (h *workspaceManagerHandler) textOpts(
 		text.WithMarkdownConfig(markdownConfig),
 		text.WithClipboard(h.clip),
 		text.WithOpenRouter(h),
-		text.WithFileExplorerIndentAttr(cfg.fileExplorerIndentAttr()),
-		text.WithFileExplorerIconAttr(cfg.fileExplorerIconAttr()),
+		text.WithFileExplorer(text.FileExplorerConfig{
+			IndentAttr: cfg.fileExplorerIndentAttr(),
+			IconAttr:   cfg.fileExplorerIconAttr(),
+		}),
 		text.WithEnvSource(h.envSource),
 		text.WithStreamingOpen(h.streamingOpen),
 	}

@@ -2050,8 +2050,8 @@ func (e *ex) initFileExplorer() error {
 		comp, err := fileexplorercomp.New(buf, e.workspace, rootURI, fileexplorercomp.Config{
 			Icons:       e.config.Icons,
 			IndentWidth: e.config.Tabspaces,
-			IndentAttr:  e.config.FileExplorerIndentAttr,
-			IconAttr:    e.config.FileExplorerIconAttr,
+			IndentAttr:  e.config.FileExplorer.IndentAttr,
+			IconAttr:    e.config.FileExplorer.IconAttr,
 			Ignore:      ignore,
 		})
 		if err != nil {

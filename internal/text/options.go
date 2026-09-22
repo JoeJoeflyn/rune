@@ -113,15 +113,9 @@ type Config struct {
 	// scheduler (a queueing or lock-serialising one for fixtures that
 	// also drive UI mutations from another goroutine).
 	ScheduleNextTick func(func()) bool
-	// FileExplorerIndentAttr selects the attributes applied to the
-	// indent guide rune drawn at the start of every depth level in
-	// the file explorer. Defaults to term.ColorGray when zero.
-	FileExplorerIndentAttr term.Attributes
-	// FileExplorerIconAttr selects the attributes applied to the
-	// per-row icon glyph (directory, default file, or per-extension
-	// override) drawn after the indent guides in the file explorer.
-	// Defaults to term.ColorGray when zero.
-	FileExplorerIconAttr term.Attributes
+	// FileExplorer tunes the :fexplorer tree without affecting the
+	// code editor itself.
+	FileExplorer FileExplorerConfig
 	// EnvSource resolves command-time variables referenced by alias
 	// bodies and by dispatched argv. The text component additionally
 	// overlays a fixed set of editor-state variables on top of this
@@ -339,6 +333,28 @@ type CommandAlias struct {
 	Completers []func(*Component) command.Completer
 }
 
+// FileExplorerConfig tunes the :fexplorer tree. Every field is
+// user-overridable through the editor.file_explorer config block.
+type FileExplorerConfig struct {
+	// IndentAttr selects the attributes applied to the indent guide
+	// rune drawn at the start of every depth level.
+	IndentAttr term.Attributes
+	// IconAttr selects the attributes applied to the per-row icon
+	// glyph (directory, default file, or per-extension override)
+	// drawn after the indent guides.
+	IconAttr term.Attributes
+}
+
+// DefaultFileExplorerConfig returns the default FileExplorerConfig.
+// The same values ship as the editor.file_explorer defaults in
+// rune.star.
+func DefaultFileExplorerConfig() FileExplorerConfig {
+	return FileExplorerConfig{
+		IndentAttr: term.Attributes{Fg: term.ColorGray},
+		IconAttr:   term.Attributes{Fg: term.ColorGray},
+	}
+}
+
 // DefaultCommandOverlayConfig returns the default Config's CommandOverlayConfig.
 func DefaultCommandOverlayConfig() (cfg CommandOverlayConfig) {
 	// NOTE: cannot use handler/command config: dependency cycle
@@ -375,14 +391,13 @@ func DefaultConfig() Config {
 		// rune.star ships the same value via
 		// editor.max_size_for_syntax; user configs and tests can
 		// override the field through text.WithMaxSyntaxParseSize.
-		MaxSyntaxParseSize:     1 * 1024 * 1024,
-		PkgManager:             nopPkgManager{},
-		Markdown:               markdown.DefaultConfig(),
-		Clipboard:              clipboard.NewInMemory(),
-		OpenRouter:             nopOpenRouter{},
-		Comments:               CommentConfig{},
-		FileExplorerIndentAttr: term.Attributes{Fg: term.ColorGray},
-		FileExplorerIconAttr:   term.Attributes{Fg: term.ColorGray},
+		MaxSyntaxParseSize: 1 * 1024 * 1024,
+		PkgManager:         nopPkgManager{},
+		Markdown:           markdown.DefaultConfig(),
+		Clipboard:          clipboard.NewInMemory(),
+		OpenRouter:         nopOpenRouter{},
+		Comments:           CommentConfig{},
+		FileExplorer:       DefaultFileExplorerConfig(),
 		Icons: IconSet{
 			Extensions:    map[string]rune{},
 			Directory:     '',
@@ -714,19 +729,10 @@ func WithIconSet(icons IconSet) Option {
 	}
 }
 
-// WithFileExplorerIndentAttr sets the attributes used to render the
-// indent guide rune of every depth level in the file explorer.
-func WithFileExplorerIndentAttr(attr term.Attributes) Option {
+// WithFileExplorer sets the :fexplorer tree configuration.
+func WithFileExplorer(explorer FileExplorerConfig) Option {
 	return func(cfg *Config) {
-		cfg.FileExplorerIndentAttr = attr
-	}
-}
-
-// WithFileExplorerIconAttr sets the attributes used to render the
-// per-row icon glyph in the file explorer.
-func WithFileExplorerIconAttr(attr term.Attributes) Option {
-	return func(cfg *Config) {
-		cfg.FileExplorerIconAttr = attr
+		cfg.FileExplorer = explorer
 	}
 }
 
