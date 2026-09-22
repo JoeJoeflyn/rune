@@ -925,6 +925,28 @@ func cloneExplorerMockDirs(in map[string][]explorerMockEntry) map[string][]explo
 	return out
 }
 
+// TestFileExplorerEnterOnUnsavedRowReportsError covers the "I can't do
+// anything with it" half of the pasted-row report: a row the user
+// typed has no node identity yet, so <enter> resolves to nothing.
+// Silently swallowing it leaves the user stuck; say why instead.
+func TestFileExplorerEnterOnUnsavedRowReportsError(t *testing.T) {
+	h, host := newTestFileExplorerHandler(t, map[string][]explorerMockEntry{
+		"/project": {{name: "main.go", isDir: false}},
+	})
+	cols := h.buf.View().Columns(0)
+	h.buf.Edit(context.Background(),
+		term.Coordinates{Y: 0, X: cols},
+		term.Coordinates{Y: 0, X: cols},
+		"\nnewfile.go")
+	require.True(t, h.ed.SetCursorAtScroll(term.Coordinates{Y: 1}))
+
+	_, handled := h.Handle(term.Event{Type: term.EventKey, Key: term.KeyEnter})
+	require.True(t, handled)
+	require.Empty(t, host.opened)
+	require.Len(t, host.errs, 1)
+	require.Contains(t, host.errs[0].Error(), "unsaved row")
+}
+
 func expandExplorerRowContaining(t *testing.T, h *fileExplorerHandler, label string) {
 	t.Helper()
 	for y, line := range strings.Split(h.buf.String(), "\n") {

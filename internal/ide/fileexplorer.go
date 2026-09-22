@@ -18,6 +18,7 @@ package ide
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/unstablebuild/rune-go-sdk/api/textapi"
@@ -381,6 +382,10 @@ func (h *fileExplorerHandler) enterAt(pos term.Coordinates) bool {
 		h.open(uri)
 		return true
 	}
+	if _, known := h.comp.NodeAt(pos); !known && h.rowHasContent(pos.Y) {
+		h.host.SetError(errors.New(
+			"file explorer: unsaved row, write to create it"))
+	}
 	// Component may have rewritten the buffer; restore the cursor
 	// clamped to the new bounds.
 	rows := h.ed.CellView().Rows()
@@ -397,6 +402,17 @@ func (h *fileExplorerHandler) enterAt(pos term.Coordinates) bool {
 		_ = h.ed.SetCursorAtScroll(prev)
 	}
 	return true
+}
+
+// rowHasContent reports whether y addresses a rendered, non-blank
+// buffer row. Clicks past the last row resolve to a no-op and must
+// not report an error.
+func (h *fileExplorerHandler) rowHasContent(y int) bool {
+	view := h.ed.CellView()
+	if y < 0 || y >= view.Rows() {
+		return false
+	}
+	return view.Columns(y) > 0
 }
 
 func (h *fileExplorerHandler) flush() error {

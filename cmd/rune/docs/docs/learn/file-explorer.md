@@ -58,6 +58,11 @@ you can reshape your whole workspace with plain text edits:
   it; outdent it to move it back toward the parent.
 - **Copy** a file by duplicating its line (yank and paste it elsewhere).
 
+When you yank a row, you also yank the icon glyph rendered in front of
+the name. Paste the name only, or fix the pasted line up so it reads
+like the rest of the tree. Rune refuses to write a name containing an
+icon glyph, and tells you which line is at fault.
+
 None of this touches the disk while you type. You can stage as many
 changes as you like, across as many directories as you like, and review
 the whole batch before anything happens. This is what makes the explorer
