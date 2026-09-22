@@ -404,10 +404,16 @@ func TestFileExplorerOpenFile(t *testing.T) {
 	require.NoError(t, err)
 	touchTestFile(t, scheme, "alpha.go")
 
+	// NopEditor is modeless, and an editable modeless explorer keeps
+	// <enter> as a newline; lock it, as the modeless presets do, so
+	// <enter> opens the node.
+	explorerCfg := text.DefaultFileExplorerConfig()
+	explorerCfg.ReadOnly = true
 	b := newExForTestingWithWorkspace(t, workspace.NewSchemeWorkspace(uri, scheme, inlineSchedule),
 		texttest.NopEditor(), vte.DefaultConfig(), nopPublishEvent,
 		clipboard.NewInMemory(), text.WithCommandKey(testCommandKey),
-		text.WithCommandOverlayConfig(testCommandOverlayConfig()))
+		text.WithCommandOverlayConfig(testCommandOverlayConfig()),
+		text.WithFileExplorer(explorerCfg))
 	defer b.Close()
 
 	require.Nil(t, b.fileExplorerWin)

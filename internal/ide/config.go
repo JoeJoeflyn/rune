@@ -2855,6 +2855,54 @@ func (c ideConfig) fileExplorerIconAttr() term.Attributes {
 	return attrs
 }
 
+// fileExplorerReadOnly reports whether the :fexplorer split refuses
+// buffer edits and writes. Defaults to false so the oil.nvim-style
+// editing flow stays on unless the user opts out.
+func (c ideConfig) fileExplorerReadOnly() bool {
+	cfg, ok := c.fileExplorer()
+	if !ok {
+		return false
+	}
+	enabled, err := cfg.GetBool("read_only")
+	if err != nil {
+		if err != config.ErrNotFound {
+			c.errors["editor.file_explorer.read_only"] = err
+		}
+		return false
+	}
+	return enabled
+}
+
+// fileExplorerEditKey returns the key that leaves the explorer's
+// read-only mode. Defaults to <shift-esc>: a bare <esc> is
+// load-bearing in every editor mode, so the shifted variant carries
+// this instead.
+func (c ideConfig) fileExplorerEditKey() term.KeyComb {
+	def := term.KeyComb{Key: term.KeyEsc, Mod: term.ModShift}
+	cfg, ok := c.fileExplorer()
+	if !ok {
+		return def
+	}
+	spec, err := cfg.GetString("edit_key")
+	if err != nil {
+		if err != config.ErrNotFound {
+			c.errors["editor.file_explorer.edit_key"] = err
+		}
+		return def
+	}
+	keys, err := term.ParseKeys(spec)
+	if err != nil {
+		c.errors["editor.file_explorer.edit_key"] = err
+		return def
+	}
+	if len(keys) != 1 {
+		c.errors["editor.file_explorer.edit_key"] = fmt.Errorf(
+			"expected a single key combination, got %d", len(keys))
+		return def
+	}
+	return keys[0]
+}
+
 // fileExplorerMinWidth returns the width the explorer reports when
 // the tree renders nothing. Dimensions are derived from the rendered
 // buffer, so an empty workspace (or one whose entries are all
@@ -2874,6 +2922,42 @@ func (c ideConfig) fileExplorerMinWidth() int {
 		return def
 	}
 	return width
+}
+
+// fileExplorerHint reports whether the explorer draws the bottom row
+// naming the next action available in the current mode.
+func (c ideConfig) fileExplorerHint() bool {
+	cfg, ok := c.fileExplorer()
+	if !ok {
+		return true
+	}
+	enabled, err := cfg.GetBool("hint")
+	if err != nil {
+		if err != config.ErrNotFound {
+			c.errors["editor.file_explorer.hint"] = err
+		}
+		return true
+	}
+	return enabled
+}
+
+// fileExplorerHintAttr returns the attributes used to render the
+// explorer's hint row. Defaults to a gray foreground only, so the row
+// recedes instead of reading as another status bar.
+func (c ideConfig) fileExplorerHintAttr() term.Attributes {
+	def := term.Attributes{Fg: term.ColorGray}
+	cfg, ok := c.fileExplorer()
+	if !ok {
+		return def
+	}
+	attrs, err := config.GetAttributes(cfg, "hint_attr")
+	if err != nil {
+		if err != config.ErrNotFound {
+			c.errors["editor.file_explorer.hint_attr"] = err
+		}
+		return def
+	}
+	return attrs
 }
 
 func (c ideConfig) auxiliaryBarEnabled() bool {

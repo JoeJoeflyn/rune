@@ -108,6 +108,13 @@ type Handler interface {
 	// so the search can be committed instead of being captured
 	// for an unrelated shortcut.
 	IsSearchMode() bool
+
+	// IsNormalMode reports whether the handler is in a modal editor's
+	// normal mode, where keystrokes are commands rather than text.
+	// Modeless editors are never in it. Outer handlers that repurpose
+	// <Enter> may only do so while this is true; in every other mode
+	// the key keeps its editor meaning, such as inserting a newline.
+	IsNormalMode() bool
 }
 
 // EventPublisher wraps subscribing and unsubscribing to file events.

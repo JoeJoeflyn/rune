@@ -2211,3 +2211,57 @@ func TestFileExplorerMinWidthConfig(t *testing.T) {
 	assert.Equal(t, 40, set.fileExplorerMinWidth())
 	assert.Empty(t, set.errors)
 }
+
+// TestFileExplorerReadOnlyConfigDefaults pins the defaults for the
+// read-only knobs, so an install that never touches the block still
+// gets an editable explorer with a named way into and out of it.
+func TestFileExplorerReadOnlyConfigDefaults(t *testing.T) {
+	t.Parallel()
+	c := ideConfig{cfg: map[string]any{}, errors: map[string]error{}}
+
+	assert.False(t, c.fileExplorerReadOnly())
+	assert.Equal(t, term.KeyComb{Key: term.KeyEsc, Mod: term.ModShift},
+		c.fileExplorerEditKey())
+	assert.True(t, c.fileExplorerHint())
+	assert.Equal(t, term.Attributes{Fg: term.ColorGray},
+		c.fileExplorerHintAttr())
+	assert.Empty(t, c.errors)
+}
+
+// TestFileExplorerReadOnlyConfigOverrides verifies every read-only
+// knob is reachable from editor.file_explorer.
+func TestFileExplorerReadOnlyConfigOverrides(t *testing.T) {
+	t.Parallel()
+	c := ideConfig{cfg: map[string]any{"editor": map[string]any{
+		"file_explorer": map[string]any{
+			"read_only": true,
+			"edit_key":  "<c-e>",
+			"hint":      false,
+			"hint_attr": map[string]any{"fg": "blue"},
+		},
+	}}, errors: map[string]error{}}
+
+	assert.True(t, c.fileExplorerReadOnly())
+	assert.Equal(t, term.KeyComb{Ch: 'e', Mod: term.ModCtrl},
+		c.fileExplorerEditKey())
+	assert.False(t, c.fileExplorerHint())
+	assert.Equal(t, term.Attributes{Fg: term.ColorBlue},
+		c.fileExplorerHintAttr())
+	assert.Empty(t, c.errors)
+}
+
+// TestFileExplorerEditKeyInvalid records the error and keeps the
+// default rather than leaving the explorer with no way out of
+// read-only.
+func TestFileExplorerEditKeyInvalid(t *testing.T) {
+	t.Parallel()
+	for _, spec := range []string{"<nope>", "ab"} {
+		c := ideConfig{cfg: map[string]any{"editor": map[string]any{
+			"file_explorer": map[string]any{"edit_key": spec},
+		}}, errors: map[string]error{}}
+
+		assert.Equal(t, term.KeyComb{Key: term.KeyEsc, Mod: term.ModShift},
+			c.fileExplorerEditKey())
+		assert.Contains(t, c.errors, "editor.file_explorer.edit_key")
+	}
+}

@@ -577,9 +577,18 @@ config = {
         "file_explorer": {
             "indent_attr": attr(fg = "gray"),
             "icon_attr":   attr(fg = "gray"),
+            # When True, the explorer refuses edits and writes; browsing,
+            # expanding and opening files still work.
+            "read_only":   False,
+            # Key that leaves read_only for the rest of the visit.
+            "edit_key":    "<shift-esc>",
             # Width the split falls back to when the tree renders nothing,
             # so an empty or fully ignored workspace stays usable.
             "min_width":   24,
+            # Bottom row naming the next action available in the current
+            # mode, styled by hint_attr.
+            "hint":        True,
+            "hint_attr":   attr(fg = "gray"),
         },
     },
     # This maps extension ID to extension configuration.

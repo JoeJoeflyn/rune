@@ -343,10 +343,21 @@ type FileExplorerConfig struct {
 	// glyph (directory, default file, or per-extension override)
 	// drawn after the indent guides.
 	IconAttr term.Attributes
+	// ReadOnly disables every filesystem-mutating edit: buffer edits
+	// are refused before they land, leaving navigation and
+	// expand/collapse intact.
+	ReadOnly bool
+	// EditKey leaves read-only mode for the rest of the visit.
+	EditKey term.KeyComb
 	// MinWidth is the width the explorer falls back to when the tree
 	// renders nothing, so an empty or fully ignored workspace does
 	// not collapse the split into an unusable sliver.
 	MinWidth int
+	// Hint draws a single row at the bottom of the explorer naming
+	// the next action available in the current mode.
+	Hint bool
+	// HintAttr selects the attributes applied to that hint row.
+	HintAttr term.Attributes
 }
 
 // DefaultFileExplorerConfig returns the default FileExplorerConfig.
@@ -356,7 +367,10 @@ func DefaultFileExplorerConfig() FileExplorerConfig {
 	return FileExplorerConfig{
 		IndentAttr: term.Attributes{Fg: term.ColorGray},
 		IconAttr:   term.Attributes{Fg: term.ColorGray},
+		EditKey:    term.KeyComb{Key: term.KeyEsc, Mod: term.ModShift},
 		MinWidth:   24,
+		Hint:       true,
+		HintAttr:   term.Attributes{Fg: term.ColorGray},
 	}
 }
 

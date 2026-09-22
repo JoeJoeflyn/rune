@@ -2072,7 +2072,10 @@ func (e *ex) initFileExplorer() error {
 		}
 		wrapped, err := newFileExplorerHandler(
 			exFileExplorerHost{ex: e}, comp, buf, ed, uri, e.fileExplorerTarget,
-			e.config.FileExplorer,
+			fileExplorerConfig{
+				FileExplorerConfig: e.config.FileExplorer,
+				SaveKey:            e.fileExplorerSaveKey(),
+			},
 		)
 		if err != nil {
 			return fmt.Errorf("file explorer: wrap component: %w", err)
@@ -2099,6 +2102,17 @@ func (e *ex) initFileExplorer() error {
 	e.fileExplorerHandler.syncWidth()
 	_, _ = e.comp.SetFocus(prev)
 	return nil
+}
+
+// fileExplorerSaveKey resolves the key label bound to `write` so the
+// explorer hint names the key the user actually has. Presets bind it
+// differently per editor mode; modal binds no chord at all, and an
+// empty result drops the hint rather than naming the command prompt.
+func (e *ex) fileExplorerSaveKey() string {
+	if e.commandPromptCfg.keyBindingHint == nil {
+		return ""
+	}
+	return e.commandPromptCfg.keyBindingHint("write")
 }
 
 func (e *ex) fexplorer(_ context.Context, args ...string) error {

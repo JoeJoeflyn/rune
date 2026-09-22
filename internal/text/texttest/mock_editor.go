@@ -196,6 +196,9 @@ func (t *TestEditorHandler) Dimensions() (int, int) {
 // IsSearchMode satisfies text.Handler.
 func (t *TestEditorHandler) IsSearchMode() bool { return false }
 
+// IsNormalMode satisfies text.Handler.
+func (t *TestEditorHandler) IsNormalMode() bool { return false }
+
 func (e *TestEditor) SubscribeCommand(cmd textapi.CommandManual, h text.CommandHandler) error {
 	return nil
 }

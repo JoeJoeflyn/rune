@@ -166,15 +166,17 @@ func TestFileCommandRegistryIntegration(t *testing.T) {
 // search and not toggle the tree. modeless does not have a
 // key-driven inline search (text search in modeless is surfaced
 // through a separate fuzzy_search extension command), so we
-// instead assert the non-search-mode behavior is preserved end-
-// to-end: <Enter> still toggles the tree exactly as before.
+// instead pin down what <Enter> means there: a newline while the
+// explorer is editable, and expand-or-open while it is locked.
 func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 	cases := []struct {
-		name string
-		mode string
+		name     string
+		mode     string
+		readOnly bool
 	}{
 		{name: "modal", mode: editorModeModal},
 		{name: "standard", mode: editorModeStandard},
+		{name: "standard read-only", mode: editorModeStandard, readOnly: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -190,8 +192,12 @@ func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 			cfg := defaultConfigWithWrap(false)
 			editorCfg := cfg.cfg["editor"].(map[string]any)
 			editorCfg["mode"] = tc.mode
+			editorCfg["file_explorer"] = map[string]any{
+				"read_only": tc.readOnly,
+			}
 			cfg.cfg["editor"] = editorCfg
 			require.Equal(t, tc.mode, cfg.editorMode())
+			require.Equal(t, tc.readOnly, cfg.fileExplorerReadOnly())
 
 			uri, err := workspaceapi.ParseURI("file://" + dir)
 			require.NoError(t, err)
@@ -273,12 +279,13 @@ func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 				}
 
 			case editorModeStandard:
-				// standard has no key-driven inline search in the
-				// explorer; verify the non-search-mode behavior
-				// still holds end-to-end through the full
-				// wrapper chain. With the cursor on the first
-				// (directory) row, <Enter> must expand the tree
-				// — i.e. row count increases.
+				// The cursor sits on the first row, a directory
+				// (they sort first). A modeless editor is always
+				// inserting, so while the explorer is editable
+				// <Enter> must stay a newline; only the lock turns
+				// it into expand-or-open. An expanded directory is
+				// the only thing that puts an indent guide in the
+				// buffer.
 				_, handled := h.Handle(term.Event{
 					Type: term.EventKey, Key: term.KeyEnter,
 				})
@@ -287,10 +294,20 @@ func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 				require.False(t, explorer.ed.IsSearchMode(),
 					"standard must not be in search mode after "+
 						"<Enter> on a non-search context")
-				require.NotEqual(t, beforeRows,
+				buf := term.CellsToString(explorer.ed.CellView().RawCells())
+				if tc.readOnly {
+					require.Contains(t, buf, "│",
+						"<Enter> on a locked explorer must expand "+
+							"the directory under the cursor")
+					return
+				}
+				require.NotContains(t, buf, "│",
+					"<Enter> on an editable modeless explorer must "+
+						"not expand the tree")
+				require.Equal(t, beforeRows+1,
 					explorer.ed.CellView().Rows(),
-					"<Enter> outside search mode must still "+
-						"toggle the tree (regression guard)")
+					"<Enter> on an editable modeless explorer must "+
+						"insert a newline")
 			}
 		})
 	}

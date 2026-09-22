@@ -158,6 +158,20 @@ func (mr *MockHandlerMockRecorder) Handle(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handle", reflect.TypeOf((*MockHandler)(nil).Handle), arg0)
 }
 
+// IsNormalMode mocks base method.
+func (m *MockHandler) IsNormalMode() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsNormalMode")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsNormalMode indicates an expected call of IsNormalMode.
+func (mr *MockHandlerMockRecorder) IsNormalMode() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsNormalMode", reflect.TypeOf((*MockHandler)(nil).IsNormalMode))
+}
+
 // IsSearchMode mocks base method.
 func (m *MockHandler) IsSearchMode() bool {
 	m.ctrl.T.Helper()
