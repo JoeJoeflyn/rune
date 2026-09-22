@@ -3067,6 +3067,7 @@ func (t testEx) Handle(ev term.Event) (bool, bool) {
 	// same way the production event loop processes them.
 	t.ex.waitInflight()
 	t.flushScheduled()
+	t.drainAliasRuns()
 	return quit, handle
 }
 
@@ -3108,6 +3109,23 @@ func (t testEx) flushScheduled() {
 		return
 	}
 	t.scheduler.Flush(t.mu)
+}
+
+// drainAliasRuns pumps the test scheduler until no command dispatch is
+// in flight or queued, or a bound elapses. It stands in for the host
+// event loop, which keeps ticking while a dispatch is parked.
+func (t testEx) drainAliasRuns() {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		t.flushScheduled()
+		unlock := t.lock()
+		quiet := t.ex.runInFlight == nil && len(t.ex.runQueue) == 0
+		unlock()
+		if quiet || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 type queuedScheduler struct {
@@ -4471,6 +4489,19 @@ func (r *pluginWaitNotifications) terminalReached() bool {
 		}
 	}
 	return false
+}
+
+// errorMessages returns every LevelError notification body seen so far.
+func (r *pluginWaitNotifications) errorMessages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, nf := range r.notifies {
+		if nf.level == browserapi.LevelError {
+			out = append(out, nf.msg)
+		}
+	}
+	return out
 }
 
 func TestIntegrationEphemeralTerminal(t *testing.T) {
@@ -7167,6 +7198,7 @@ func newExForCapturingCommand(t *testing.T, aliasCommands []string) textapi.Comm
 	require.NoError(t, err)
 
 	require.NoError(t, b.ex.dispatchCommand("chaintest"))
+	b.drainAliasRuns()
 	require.True(t, subscribed,
 		"the post-capture alias step must have been dispatched")
 	return got
@@ -7245,6 +7277,7 @@ func TestWorktreeRemoveAliasResolvesFromInsideWorktree(t *testing.T) {
 		)
 		defer e.Close()
 		_ = e.dispatchCommand("worktreeremove", worktreeName)
+		e.drainAliasRuns()
 		require.NotEmpty(t, captured.cmds,
 			"!! must have reached the executor's StartCommand")
 		got := captured.cmds[0]

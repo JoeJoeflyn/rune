@@ -2660,7 +2660,7 @@ func (h *workspaceManagerHandler) commandExtensionReady(args ...string) error {
 		ch = make(chan extReadyJob, extReadyQueueLimit)
 		ex.extReady[id] = ch
 		ch <- job
-		h.startExtReadyWorker(ex.extReadyCtx, ex, id, runner, ch)
+		h.startExtReadyWorker(ex.bgCtx, ex, id, runner, ch)
 		return nil
 	}
 	if len(ch) == extReadyQueueLimit {
@@ -3659,6 +3659,29 @@ func (h *workspaceManagerHandler) waitInflight() {
 	h.mu.Unlock()
 	for _, e := range exes {
 		e.waitInflight()
+	}
+	h.waitAliasRuns(exes)
+}
+
+// waitAliasRuns is TEST ONLY and blocks until no ex in exes has a
+// command dispatch in flight or queued, or a bound elapses. Callers must
+// not hold h.mu.
+func (h *workspaceManagerHandler) waitAliasRuns(exes []*ex) {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		busy := false
+		for _, e := range exes {
+			if e.runInFlight != nil || len(e.runQueue) > 0 {
+				busy = true
+				break
+			}
+		}
+		h.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

@@ -69,6 +69,7 @@ import (
 	"unstable.build/rune/internal/text"
 	"unstable.build/rune/internal/text/cmdenv"
 	"unstable.build/rune/internal/text/exoeditor"
+	"unstable.build/rune/internal/text/textrpc"
 	"unstable.build/rune/internal/workspace"
 )
 
@@ -153,6 +154,11 @@ type ex struct {
 	// dependency (see newEx) so neither consumer has to guard nil.
 	promptEditor      command.Editor
 	pluginWaitTimeout time.Duration
+	// stepWaitTimeout bounds how long one alias step may hold the
+	// dispatch slot after claiming its waiter. Must exceed
+	// pluginWaitTimeout, the budget of the only step kind that bounds
+	// itself; the rest can claim and then never report at all.
+	stepWaitTimeout time.Duration
 	// use floating windows functionality without having to work around focus commands
 	// and how to se cmd.Window correctly.
 	cmdV   handler.Virtual[*browser.Component]
@@ -195,8 +201,10 @@ type ex struct {
 	commandObserver     commandObserver
 	consoleCfg          consoleConfig
 	extReady            map[string]chan extReadyJob
-	extReadyCtx         context.Context
-	extReadyCancel      context.CancelFunc
+	bgCtx               context.Context
+	bgCancel            context.CancelFunc
+	runInFlight         *aliasRun
+	runQueue            []queuedDispatch
 	// asyncVTELoads tracks in-flight asyncVTE and asyncPlugin factory
 	// goroutines. Test-only synchronization point.
 	asyncVTELoads sync.WaitGroup
@@ -287,7 +295,7 @@ func (e *ex) init(
 	}
 	e.promptEditor = promptEditor
 	e.extReady = make(map[string]chan extReadyJob)
-	e.extReadyCtx, e.extReadyCancel = context.WithCancel(context.Background())
+	e.bgCtx, e.bgCancel = context.WithCancel(context.Background())
 	err = e.doInit(m, storage, notifications, uri,
 		emulatorConfig, publishEvent, clip, opts...)
 	if err != nil {
@@ -481,6 +489,7 @@ func (e *ex) doInit(
 	e.executor = &currentExecutor{}
 	e.executor.set(m)
 	e.pluginWaitTimeout = 60 * time.Second
+	e.stepWaitTimeout = e.pluginWaitTimeout + 30*time.Second
 	e.clip = clip
 	e.workspace = m
 	e.container = notifications.New(&e.comp, n.cfg)
@@ -999,7 +1008,70 @@ func (e *ex) dispatchCommand(cmd string, args ...string) (err error) {
 // dispatchCommandCtx is dispatchCommand with a caller-supplied base
 // context, letting the caller thread values (e.g. a textrpc.Waiter) down
 // to the leaf command handler so it can observe asynchronous completion.
+//
+// Dispatches are serialised: while an earlier one is still in flight the
+// command queues and the returned error is nil. A Waiter on ctx is
+// claimed in that case and receives the result instead.
 func (e *ex) dispatchCommandCtx(
+	ctx context.Context, cmd string, args ...string,
+) (err error) {
+	if e.runInFlight != nil {
+		var w *textrpc.Waiter
+		if cw, ok := textrpc.WaiterFromContext(ctx); ok {
+			cw.Claimed = true
+			w = cw
+		}
+		e.runQueue = append(e.runQueue, queuedDispatch{
+			ctx: ctx, cmd: cmd, args: args, waiter: w,
+		})
+		return nil
+	}
+	return e.dispatchResolved(ctx, cmd, args...)
+}
+
+// drainRunQueue dispatches queued commands in arrival order until the
+// queue empties or one of them takes the dispatch slot in turn.
+func (e *ex) drainRunQueue() {
+	for e.runInFlight == nil && len(e.runQueue) > 0 {
+		q := e.runQueue[0]
+		e.runQueue = e.runQueue[1:]
+		e.dispatchQueued(q)
+	}
+}
+
+// dispatchQueued runs a deferred command and delivers its result to the
+// waiter the caller was promised, as a notification when there is none.
+func (e *ex) dispatchQueued(q queuedDispatch) {
+	ctx := q.ctx
+	inner := &textrpc.Waiter{Ch: make(chan error, 1)}
+	if q.waiter != nil {
+		// Shadowed so the handler cannot report on q.waiter directly:
+		// the result must be delivered exactly once, from here.
+		ctx = textrpc.ContextWithWaiter(ctx, inner)
+	}
+	err := e.dispatchResolved(ctx, q.cmd, q.args...)
+	if q.waiter == nil {
+		if err != nil {
+			e.setError(err)
+		}
+		return
+	}
+	if err != nil || !inner.Claimed {
+		q.waiter.Ch <- err
+		return
+	}
+	go debug.CapturePanicReport(func() {
+		select {
+		case res := <-inner.Ch:
+			q.waiter.Ch <- res
+		case <-e.bgCtx.Done():
+		}
+	})
+}
+
+// dispatchResolved expands cmd and dispatches it, bypassing the
+// serialisation dispatchCommandCtx applies.
+func (e *ex) dispatchResolved(
 	ctx context.Context, cmd string, args ...string,
 ) (err error) {
 	uri, h, ok := e.handlerInFocus()
@@ -1021,7 +1093,25 @@ func (e *ex) dispatchCommandCtx(
 	if isAlias && idecmd.ChainFromContext(ctx) == nil {
 		ctx = idecmd.WithChain(ctx, cmd, idecmd.NewChain())
 	}
-	handled, err := e.dispatchExpanded(ctx, cmd, scmd, isAlias, nil)
+	var handled bool
+	if isAlias {
+		var parent *textrpc.Waiter
+		if w, wok := textrpc.WaiterFromContext(ctx); wok {
+			parent = w
+		}
+		r, rerr := newAliasRun(e, ctx, scmd, nil, parent, false)
+		if rerr != nil {
+			return rerr
+		}
+		r.step()
+		if r.detached {
+			// The run owns its result from here on.
+			return nil
+		}
+		handled, err = r.handled, r.err
+	} else {
+		handled, err = e.dispatchLeaf(ctx, cmd, scmd)
+	}
 	if err != nil {
 		return err
 	}
@@ -1034,27 +1124,10 @@ func (e *ex) dispatchCommandCtx(
 	return fmt.Errorf("%s is aliased to an unknown command %v", cmd, target.Commands)
 }
 
-// dispatchExpanded expands scmd through the alias table and dispatches
-// each resulting step in order. When a step's name is itself an alias
-// it is re-expanded recursively, sharing ctx (hence the same chain) so
-// captures flow across nesting levels, instead of being handed to the
-// leaf dispatcher which only resolves subscribed commands. stack holds
-// the alias names currently being expanded so a self- or
-// mutually-recursive alias is rejected instead of looping forever.
-func (e *ex) dispatchExpanded(
-	ctx context.Context, cmd string, scmd textapi.Command, isAlias bool,
-	stack map[string]bool,
+// dispatchLeaf expands a non-alias command's args and dispatches it.
+func (e *ex) dispatchLeaf(
+	ctx context.Context, cmd string, scmd textapi.Command,
 ) (handled bool, err error) {
-	if isAlias {
-		if stack[cmd] {
-			return false, fmt.Errorf("alias cycle through %q", cmd)
-		}
-		if stack == nil {
-			stack = make(map[string]bool)
-		}
-		stack[cmd] = true
-		defer delete(stack, cmd)
-	}
 	it, err := e.aliasExpander.Expand(ctx, scmd)
 	if err != nil {
 		return false, err
@@ -1065,22 +1138,11 @@ func (e *ex) dispatchExpanded(
 		if !ok {
 			break
 		}
-		var (
-			h    bool
-			derr error
-		)
-		if _, isStepAlias := e.aliasExpander.ResolveAlias(next.Name); isStepAlias {
-			h, derr = e.dispatchExpanded(ctx, next.Name, next, true, stack)
-		} else {
-			h, derr = e.comp.DispatchCommand(ctx, next)
-		}
+		h, derr := e.comp.DispatchCommand(ctx, next)
 		if e.commandObserver != nil {
 			e.commandObserver.observeCommand(cmd, next.Name, next.Args, derr)
 		}
 		if derr != nil {
-			if isAlias {
-				return false, fmt.Errorf("%s: %s", formatStep(next), derr)
-			}
 			return false, derr
 		}
 		handled = handled || h
@@ -1700,8 +1762,18 @@ func (e *ex) executePluginWait(ctx context.Context, args ...string) error {
 	}
 
 	notifyName := firstWord(line)
-	_, isAliasCtx := idecmd.IsContext(ctx)
-	run := func(ctx context.Context) error {
+	waiter, hasWaiter := textrpc.WaiterFromContext(ctx)
+	if hasWaiter {
+		waiter.Claimed = true
+	}
+
+	notifID, nerr := e.notifications.Notify(browserapi.LevelInfo,
+		"%s: running...", notifyName)
+	if nerr == nil {
+		_ = e.notifications.UpdateNotificationProgress(notifID, "", 0, 1)
+	}
+
+	go debug.CapturePanicReport(func() {
 		runCtx, cancel := context.WithTimeout(ctx, e.pluginWaitTimeout)
 		defer cancel()
 		var stderrBuf strings.Builder
@@ -1712,48 +1784,31 @@ func (e *ex) executePluginWait(ctx context.Context, args ...string) error {
 			Stderr:    &stderrBuf,
 		}
 		captured, runErr := runner.Run(runCtx, line, parsed)
-		if runErr != nil {
-			return runErr
+		if runErr == nil {
+			// Must land before the waiter is released: whatever the
+			// caller does next has to see the captures.
+			idecmd.UpdateChainVars(ctx, captured)
 		}
-		idecmd.UpdateChainVars(ctx, captured)
-		return nil
-	}
-
-	notifID, nerr := e.notifications.Notify(browserapi.LevelInfo,
-		"%s: running...", notifyName)
-	if nerr == nil {
-		_ = e.notifications.UpdateNotificationProgress(notifID, "", 0, 1)
-	}
-
-	if isAliasCtx {
-		runErr := run(ctx)
-		if nerr == nil {
-			_ = e.notifications.UpdateNotificationProgress(notifID, "", 1, 1)
-		}
-		if runErr != nil {
-			return runErr
-		}
-		_, _ = e.notifications.Notify(browserapi.LevelSuccess,
-			fmt.Sprintf("%s: done in %s", notifyName,
-				time.Since(start).Truncate(time.Millisecond)))
-		return nil
-	}
-
-	go debug.CapturePanicReport(func() {
-		runErr := run(ctx)
 		e.config.ScheduleNextTick(func() {
 			if nerr == nil {
 				_ = e.notifications.UpdateNotificationProgress(notifID, "", 1, 1)
 			}
 			if runErr != nil {
-				_, _ = e.notifications.Notify(browserapi.LevelError,
-					fmt.Sprintf("%s: %s", notifyName, runErr))
+				if !hasWaiter {
+					// A claimed waiter takes delivery of runErr and
+					// reports it, so this would be a duplicate.
+					_, _ = e.notifications.Notify(browserapi.LevelError,
+						fmt.Sprintf("%s: %s", notifyName, runErr))
+				}
 				return
 			}
 			_, _ = e.notifications.Notify(browserapi.LevelSuccess,
 				fmt.Sprintf("%s: done in %s", notifyName,
 					time.Since(start).Truncate(time.Millisecond)))
 		})
+		if hasWaiter {
+			waiter.Ch <- runErr
+		}
 	})
 	return nil
 }
@@ -2934,7 +2989,7 @@ func (e *ex) Close() (ret error) {
 		return nil
 	}
 	e.closed = true
-	e.extReadyCancel()
+	e.bgCancel()
 	e.sequencer.Reset()
 	e.stopTerminal()
 	if err := e.comp.Close(); err != nil {
