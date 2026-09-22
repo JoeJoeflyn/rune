@@ -838,6 +838,9 @@ func (h *workspaceManagerHandler) initScavenger(ctx context.Context) {
 	cleaner, err := idescavenger.New(idescavenger.Config{
 		Storage:        h.ideStorage,
 		OpenWorkspaces: h.openWorkspaceURIs,
+		// workspaces opened before the scavenger existed are only known
+		// to the session history
+		Seed: h.state.ListWorkspaceURIs,
 	})
 	if err != nil {
 		log.Errorf("new workspace scavenger: %v", err)
@@ -846,14 +849,6 @@ func (h *workspaceManagerHandler) initScavenger(ctx context.Context) {
 	cleaner.AddWorkspaceHook(symboldb.CleanupWorkspaceHook(h.ideStorage))
 	cleaner.AddWorkspaceHook(h.state.ClearWorkspaceState)
 	h.scavenger = cleaner
-
-	// workspaces opened before the scavenger existed are only known to
-	// the session history
-	if uris, err := h.state.ListWorkspaceURIs(ctx); err != nil {
-		log.Errorf("list workspace states: %v", err)
-	} else if err := cleaner.Seed(ctx, uris); err != nil {
-		log.Errorf("seed workspace scavenger: %v", err)
-	}
 	cleaner.Start(ctx)
 }
 
