@@ -2195,3 +2195,19 @@ func TestValidateQuickMenuAcceptsValidConfig(t *testing.T) {
 	assert.NoError(t, validateQuickMenu(map[string]any{}))
 	assert.NoError(t, validateQuickMenu(map[string]any{"gui": map[string]any{}}))
 }
+
+// TestFileExplorerMinWidthConfig pins the default the handler falls
+// back to when editor.file_explorer is absent, so an unconfigured
+// install still gets a visible explorer on an empty workspace.
+func TestFileExplorerMinWidthConfig(t *testing.T) {
+	t.Parallel()
+	bare := ideConfig{cfg: map[string]any{}, errors: map[string]error{}}
+	assert.Equal(t, 24, bare.fileExplorerMinWidth())
+	assert.Empty(t, bare.errors)
+
+	set := ideConfig{cfg: map[string]any{"editor": map[string]any{
+		"file_explorer": map[string]any{"min_width": 40},
+	}}, errors: map[string]error{}}
+	assert.Equal(t, 40, set.fileExplorerMinWidth())
+	assert.Empty(t, set.errors)
+}

@@ -2072,6 +2072,7 @@ func (e *ex) initFileExplorer() error {
 		}
 		wrapped, err := newFileExplorerHandler(
 			exFileExplorerHost{ex: e}, comp, buf, ed, uri, e.fileExplorerTarget,
+			e.config.FileExplorer,
 		)
 		if err != nil {
 			return fmt.Errorf("file explorer: wrap component: %w", err)

@@ -2855,6 +2855,27 @@ func (c ideConfig) fileExplorerIconAttr() term.Attributes {
 	return attrs
 }
 
+// fileExplorerMinWidth returns the width the explorer reports when
+// the tree renders nothing. Dimensions are derived from the rendered
+// buffer, so an empty workspace (or one whose entries are all
+// ignored) would otherwise collapse the split to a two-cell sliver:
+// invisible, and impossible to type the first entry into.
+func (c ideConfig) fileExplorerMinWidth() int {
+	const def = 24
+	cfg, ok := c.fileExplorer()
+	if !ok {
+		return def
+	}
+	width, err := cfg.GetInt("min_width")
+	if err != nil {
+		if err != config.ErrNotFound {
+			c.errors["editor.file_explorer.min_width"] = err
+		}
+		return def
+	}
+	return width
+}
+
 func (c ideConfig) auxiliaryBarEnabled() bool {
 	cfg, ok := c.auxiliaryBar()
 	if !ok {

@@ -577,6 +577,9 @@ config = {
         "file_explorer": {
             "indent_attr": attr(fg = "gray"),
             "icon_attr":   attr(fg = "gray"),
+            # Width the split falls back to when the tree renders nothing,
+            # so an empty or fully ignored workspace stays usable.
+            "min_width":   24,
         },
     },
     # This maps extension ID to extension configuration.

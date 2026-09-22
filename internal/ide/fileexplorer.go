@@ -75,6 +75,8 @@ type fileExplorerHandler struct {
 	win    browser.Window
 	target browser.Window
 
+	cfg text.FileExplorerConfig
+
 	// pendingRefresh is set when an FS event arrives while the
 	// explorer is visible AND has unflushed user edits. The
 	// refresh is deferred until either the user successfully
@@ -96,6 +98,7 @@ func newFileExplorerHandler(
 	ed text.Handler,
 	uri workspaceapi.URI,
 	target browser.Window,
+	cfg text.FileExplorerConfig,
 ) (*fileExplorerHandler, error) {
 	h := &fileExplorerHandler{
 		host:   host,
@@ -104,6 +107,7 @@ func newFileExplorerHandler(
 		ed:     ed,
 		uri:    uri,
 		target: target,
+		cfg:    cfg,
 	}
 	h.span = handler.NewSpan(ed, component.SpanConfig{
 		PadHorizontal:    fileExplorerSpanHPad,
@@ -296,7 +300,13 @@ func (h *fileExplorerHandler) Dimensions() (int, int) {
 	// configured horizontal breathing room so the parent window
 	// can size itself to fit the chrome, the full tree, and the
 	// padding without truncation.
-	return h.span.Dimensions()
+	w, height := h.span.Dimensions()
+	if _, rows := h.comp.Dimensions(); rows == 0 {
+		// An empty or fully ignored workspace renders no rows, which
+		// would size the split down to the padding alone.
+		return max(w, h.cfg.MinWidth), 1
+	}
+	return w, height
 }
 
 func (h *fileExplorerHandler) SeekUp() bool {

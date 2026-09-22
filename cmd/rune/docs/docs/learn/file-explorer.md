@@ -26,6 +26,11 @@ binding runs the `fexplorer` command, so you can remap it like any other
 Rune remembers the window you came from. When you open a file from the
 explorer, it lands in that window, not on top of the explorer.
 
+In an empty workspace, or one where everything is ignored, the explorer
+opens as an empty buffer rather than a tree. That is the expected
+state: type the first file or directory name into it and save to create
+it. `editor.file_explorer.min_width` sets how wide that empty split is.
+
 ## Moving around
 
 The explorer renders the workspace as an indented tree inside a normal

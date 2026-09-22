@@ -1490,6 +1490,7 @@ func (h *workspaceManagerHandler) textOpts(
 		text.WithFileExplorer(text.FileExplorerConfig{
 			IndentAttr: cfg.fileExplorerIndentAttr(),
 			IconAttr:   cfg.fileExplorerIconAttr(),
+			MinWidth:   cfg.fileExplorerMinWidth(),
 		}),
 		text.WithEnvSource(h.envSource),
 		text.WithStreamingOpen(h.streamingOpen),

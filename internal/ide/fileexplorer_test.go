@@ -385,7 +385,8 @@ func TestFileExplorerHandlerRuntimeLikeDimensionsAndRender(t *testing.T) {
 	require.NoError(t, err)
 	edh, err := ed.Edit(context.Background(), uri, buf, false, false)
 	require.NoError(t, err)
-	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus)
+	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus,
+		text.DefaultFileExplorerConfig())
 	require.NoError(t, err)
 	h.SetWindow(&testExplorerWindow{id: 2})
 	h.Resize(32, 6)
@@ -479,7 +480,8 @@ func TestFileExplorerHandlerDimensionsForPrecommitConfig(t *testing.T) {
 	require.NoError(t, err)
 	edh, err := ed.Edit(context.Background(), uri, buf, false, false)
 	require.NoError(t, err)
-	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus)
+	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus,
+		text.DefaultFileExplorerConfig())
 	require.NoError(t, err)
 	h.SetWindow(&testExplorerWindow{id: 2})
 	// Resize to a generous width so the editor renders the full row.
@@ -925,6 +927,28 @@ func cloneExplorerMockDirs(in map[string][]explorerMockEntry) map[string][]explo
 	return out
 }
 
+// TestFileExplorerEmptyWorkspaceIsVisible reproduces the "no size,
+// didn't show anything" report. A workspace with nothing to render
+// yields a zero-height, zero-width component, which the host would
+// turn into an invisible sliver. The handler must floor that into a
+// window the user can see and type the first entry into.
+func TestFileExplorerEmptyWorkspaceIsVisible(t *testing.T) {
+	h, host := newTestFileExplorerHandler(t, map[string][]explorerMockEntry{
+		"/project": {},
+	})
+
+	compW, compH := h.comp.Dimensions()
+	require.Zero(t, compW)
+	require.Zero(t, compH)
+
+	w, height := h.Dimensions()
+	require.GreaterOrEqual(t, w, h.cfg.MinWidth)
+	require.Equal(t, 1, height)
+
+	h.syncWidth()
+	require.GreaterOrEqual(t, host.lastWidth, h.cfg.MinWidth)
+}
+
 // TestFileExplorerEnterOnUnsavedRowReportsError covers the "I can't do
 // anything with it" half of the pasted-row report: a row the user
 // typed has no node identity yet, so <enter> resolves to nothing.
@@ -977,7 +1001,8 @@ func newTestFileExplorerHandler(t *testing.T, dirs map[string][]explorerMockEntr
 	require.NoError(t, err)
 	edh, err := ed.Edit(context.Background(), uri, buf, false, false)
 	require.NoError(t, err)
-	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus)
+	h, err := newFileExplorerHandler(host, comp, buf, edh, uri, host.focus,
+		text.DefaultFileExplorerConfig())
 	require.NoError(t, err)
 	win := &testExplorerWindow{id: 2}
 	h.SetWindow(win)

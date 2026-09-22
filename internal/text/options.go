@@ -343,6 +343,10 @@ type FileExplorerConfig struct {
 	// glyph (directory, default file, or per-extension override)
 	// drawn after the indent guides.
 	IconAttr term.Attributes
+	// MinWidth is the width the explorer falls back to when the tree
+	// renders nothing, so an empty or fully ignored workspace does
+	// not collapse the split into an unusable sliver.
+	MinWidth int
 }
 
 // DefaultFileExplorerConfig returns the default FileExplorerConfig.
@@ -352,6 +356,7 @@ func DefaultFileExplorerConfig() FileExplorerConfig {
 	return FileExplorerConfig{
 		IndentAttr: term.Attributes{Fg: term.ColorGray},
 		IconAttr:   term.Attributes{Fg: term.ColorGray},
+		MinWidth:   24,
 	}
 }
 
