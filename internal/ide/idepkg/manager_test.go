@@ -2497,6 +2497,42 @@ func TestReconcile(t *testing.T) {
 		assertStorageEntryNotExists(t, storage, "go", "1")
 	})
 
+	t.Run("skips_installed_version_trees", func(t *testing.T) {
+		t.Parallel()
+		pkgs := idepkgtest.MakePackages()
+		versions := idepkgtest.MakeBundles()
+		m, _, _, datadir, storage := newTestManagerWithStorage(t, pkgs, versions)
+		require.NoError(t, makePkgDirs(datadir))
+
+		// An installed toolchain tree is thousands of entries; the sweep
+		// must not descend into it. Staging-looking names inside it belong
+		// to the package and must survive as proof the tree was skipped.
+		createCompleteEntry(t, storage, "go", "1")
+		installed := makePackageVersionDirname(datadir, "go", "1")
+		insideStaging := filepath.Join(installed, "src", ".staging-vendored")
+		require.NoError(t, os.MkdirAll(insideStaging, 0777))
+		insideManifest := filepath.Join(installed, "src", ".manifest-vendored.json")
+		require.NoError(t, os.WriteFile(insideManifest, []byte("{}"), 0644))
+
+		// Package-level leftovers from an aborted install of another version.
+		strayStaging := makeStagingDirname(datadir, "go", "2")
+		require.NoError(t, os.MkdirAll(strayStaging, 0777))
+		orphanManifest := makeManifestFilename(datadir, "go", "2")
+		require.NoError(t, os.WriteFile(orphanManifest, []byte("{}"), 0644))
+
+		require.NoError(t, m.Reconcile(context.Background()))
+
+		_, err := os.Stat(insideStaging)
+		assert.NoError(t, err, "walk must not descend into installed version trees")
+		_, err = os.Stat(insideManifest)
+		assert.NoError(t, err, "walk must not descend into installed version trees")
+		_, err = os.Stat(strayStaging)
+		assert.True(t, os.IsNotExist(err), "stray package-level staging dir must be removed")
+		_, err = os.Stat(orphanManifest)
+		assert.True(t, os.IsNotExist(err), "orphan package-level manifest must be removed")
+		assertStorageEntryComplete(t, storage, "go", "1")
+	})
+
 	t.Run("then_install_succeeds", func(t *testing.T) {
 		t.Parallel()
 		pkgs := idepkgtest.MakePackages()
