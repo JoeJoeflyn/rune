@@ -17,6 +17,7 @@
 package extension
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -209,3 +210,107 @@ func TestSyncStatusBarModelResolvesProviderDefaultEffort(t *testing.T) {
 		})
 	}
 }
+
+// /compact runs through the agentshell rather than the agent's event
+// stream, so it emits no EventCompacting. Declaring the phase on the
+// command result is the only thing that moves the bar off IDLE for the
+// duration of the summarisation call.
+func TestHandleCompactReportsCompactingPhase(t *testing.T) {
+	a := &commandAdapter{dialogueID: "d1"}
+	res, err := a.handleCompact(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, phaseCompacting, res.Phase)
+	assert.NotNil(t, res.Display)
+}
+
+// The three compaction paths must all reach the same status. Auto
+// compaction and the compact tool report it through the run loop's
+// events, so this drives a real agent whose model calls the compact
+// tool and samples the bar while the summarisation call is in flight.
+func TestAgentToolCompactReportsCompactingPhase(t *testing.T) {
+	entry := llmapi.ModelEntry{
+		Provider: "test", Name: "test-model", ContextWindow: 128_000,
+	}
+	svc := llmtest.New([]llmapi.ModelEntry{entry},
+		llmtest.Response{ToolCalls: []llmapi.ToolCall{{
+			ID:       "c1",
+			Type:     llmapi.ToolTypeFunction,
+			Function: llmapi.FunctionCall{Name: "compact", Arguments: "{}"},
+		}}, FinishReason: llmapi.FinishReasonToolCall},
+		llmtest.Response{Chunks: []string{"summary of the work so far"}},
+		llmtest.Response{Chunks: []string{"continuing"}},
+	)
+
+	s := newStatusBarSyncComponent()
+	t.Cleanup(func() { _ = s.comp.Close() })
+
+	// The summarisation call is the one that happens between
+	// EventCompacting and EventCompacted, so it is where the bar must
+	// already read COMPACTING.
+	var duringSummarize string
+	svc.BeforeCompletion = func() {
+		if svc.CallCount() != 1 {
+			return
+		}
+		// The bar is moved by the event consumer, which runs
+		// concurrently with this call, so sampling it outright would
+		// race the phase it is about to reach.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			duringSummarize = s.comp.StatusBarState().Phase
+			if duringSummarize == phaseCompacting || time.Now().After(deadline) {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	store := newMemDialogueStore()
+	ag := agent.NewAgent(svc, agent.NewRegistry(compactStubTool{}),
+		skills.NewRegistry(nopFileSystem{}, dirURI(""), nil, nil),
+		store, agent.NoMemory(),
+		agent.Config{SystemPrompt: "test", Model: entry, SessionKey: "d1"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	tx := make(chan dialoguetui.MessageEvent, 64)
+	rx := make(chan completionRequest, 1)
+	rx <- completionRequest{displayText: "go", modelText: "go", ctx: ctx}
+	go func() {
+		for range tx { //nolint:revive
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		createAgentCompletions(ctx, cancel, tx, rx, ag, nopSpawner{},
+			nil, skills.NewRegistry(nopFileSystem{}, dirURI(""), nil, nil),
+			"d1", s, stubNotifications{}, func(string) {}, store)
+	}()
+
+	require.Eventually(t, func() bool { return svc.CallCount() >= 3 },
+		5*time.Second, 10*time.Millisecond)
+	cancel()
+	<-done
+
+	assert.Equal(t, phaseCompacting, duringSummarize)
+}
+
+// compactStubTool stands in for agentools' compact tool, whose only
+// relevant behaviour here is asking the run loop to compact.
+type compactStubTool struct{}
+
+func (compactStubTool) Definition() llmapi.Tool {
+	return llmapi.Tool{
+		Type:     llmapi.ToolTypeFunction,
+		Function: llmapi.FunctionDefinition{Name: "compact"},
+	}
+}
+
+func (compactStubTool) Execute(context.Context, string) agent.ToolResult {
+	return agent.ToolResult{Content: "compacting", Compact: true}
+}
+
+func (compactStubTool) Summary(string) string         { return "" }
+func (compactStubTool) NeedsDeterministicOrder() bool { return false }

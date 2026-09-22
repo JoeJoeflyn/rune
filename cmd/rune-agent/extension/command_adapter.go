@@ -559,6 +559,7 @@ func (a *commandAdapter) handleCompact(
 		model = args[0]
 	}
 	return dialoguetui.CommandResult{
+		Phase: phaseCompacting,
 		Display: &compactIterator{
 			handler:    a.handler,
 			store:      a.store,

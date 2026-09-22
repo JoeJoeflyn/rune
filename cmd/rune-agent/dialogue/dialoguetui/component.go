@@ -1121,8 +1121,12 @@ func (c *Component) AddWarningMessage(msg string) {
 
 // AddCommand starts an asynchronous command output drain. It adds an
 // animation node to the message list, spawns a goroutine to consume
-// items from it, and cleans up when done. The caller must NOT hold mu.
-func (c *Component) AddCommand(ctx context.Context, it iterator.Iterator[component.Responsive]) {
+// items from it, and cleans up when done. phase, when non-empty, is
+// what the status bar reports for the duration of the drain. The caller
+// must NOT hold mu.
+func (c *Component) AddCommand(
+	ctx context.Context, phase string, it iterator.Iterator[component.Responsive],
+) {
 	frames := []string{".  ", ".. ", "...", " ..", "  .", "   "}
 	seq := []int{0, 1, 2, 3, 4, 5}
 	anim := component.NewAnimation(c.interrupter, frames, seq, 8)
@@ -1135,6 +1139,7 @@ func (c *Component) AddCommand(ctx context.Context, it iterator.Iterator[compone
 	animNode := new(component.ListNode)
 	*animNode = c.messages.PushBack(animResp)
 	c.restoreScroll(maxOff, scrolled)
+	restorePhase := c.enterCommandPhase(phase)
 	c.mu.Unlock()
 	_ = c.interrupter.Interrupt(ctx)
 
@@ -1147,6 +1152,7 @@ func (c *Component) AddCommand(ctx context.Context, it iterator.Iterator[compone
 			if it.Err() != nil && !errors.Is(it.Err(), context.Canceled) {
 				c.AddErrorMessage(it.Err().Error())
 			}
+			restorePhase()
 			c.mu.Unlock()
 			_ = anim.Close()
 			_ = c.interrupter.Interrupt(ctx)
@@ -1167,6 +1173,32 @@ func (c *Component) AddCommand(ctx context.Context, it iterator.Iterator[compone
 		}
 
 	})
+}
+
+// enterCommandPhase makes the status bar report phase and returns the
+// undo. Commands run off the turn loop, so a command that blocks on an
+// LLM call would otherwise leave the bar reading IDLE throughout. The
+// previous state is restored rather than cleared so a command issued
+// mid-turn does not strand the bar.
+func (c *Component) enterCommandPhase(phase string) func() {
+	if phase == "" || c.statusBar == nil {
+		return func() {}
+	}
+	prev := c.statusBar.State()
+	c.SetStatusBarState(func(s *StatusBarState) {
+		s.Active = true
+		s.Phase = phase
+		s.ActiveForm = ""
+		s.TurnStart = time.Now()
+	})
+	return func() {
+		c.SetStatusBarState(func(s *StatusBarState) {
+			s.Active = prev.Active
+			s.Phase = prev.Phase
+			s.ActiveForm = prev.ActiveForm
+			s.TurnStart = prev.TurnStart
+		})
+	}
 }
 
 // AddCommandOutput adds a single command output item to the message list.

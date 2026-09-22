@@ -61,6 +61,10 @@ type CommandResult struct {
 	SkillName string
 	// Exit, when true, signals the handler to close the chat.
 	Exit bool
+	// Phase, when non-empty, is the status the bar reports while Display
+	// drains. Commands that block on an LLM call need it: they run off
+	// the turn loop, so nothing else would move the bar off IDLE.
+	Phase string
 }
 
 // CommandHandler handles /commands typed in the chat input.
@@ -741,7 +745,7 @@ func (s *dialogueHandler) executeCommand(name string, args []string) {
 		return
 	}
 	if result.Display != nil {
-		s.comp.AddCommand(s.ctx, result.Display)
+		s.comp.AddCommand(s.ctx, result.Phase, result.Display)
 	}
 }
 

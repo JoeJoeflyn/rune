@@ -1606,3 +1606,93 @@ func TestHandlerCommandHistoryEntriesAreTextOnly(t *testing.T) {
 	assert.Len(t, comp.Attachments(), 1,
 		"a command must not consume the pending attachments")
 }
+
+// blockingIterator stands in for a command that blocks on a slow call,
+// such as the LLM summarisation behind /compact.
+type blockingIterator struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingIterator) Next(context.Context) (component.Responsive, bool) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return nil, false
+}
+
+func (b *blockingIterator) Err() error   { return nil }
+func (b *blockingIterator) Close() error { return nil }
+
+// A command that blocks on an LLM call runs off the turn loop, so
+// without a declared phase the status bar would read IDLE for the whole
+// call and the user would have no sign the editor was working.
+func TestHandlerCommandPhaseDrivesStatusBar(t *testing.T) {
+	it := &blockingIterator{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	mock := &mockCommandHandler{
+		handleFunc: func(context.Context, string, []string) (CommandResult, error) {
+			return CommandResult{Phase: "COMPACTING", Display: it}, nil
+		},
+	}
+	comp := NewComponent(ComponentConfig{
+		StatusBar: StatusBarConfig{Enabled: true},
+	})
+	h, tx, _ := Handler(context.Background(), new(sync.Mutex), comp,
+		term.FuncInterrupter(func(context.Context) error { return nil }),
+		WithCommands(mock),
+	)
+	defer close(tx)
+	h.Resize(80, 9)
+
+	require.Equal(t, StatusBarState{}, comp.StatusBarState())
+
+	typeText(h, "/compact")
+	h.Handle(term.Event{Type: term.EventKey, Key: term.KeyEnter})
+
+	select {
+	case <-it.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the command to start draining")
+	}
+	got := comp.StatusBarState()
+	assert.True(t, got.Active)
+	assert.Equal(t, "COMPACTING", got.Phase)
+	assert.False(t, got.TurnStart.IsZero())
+
+	close(it.release)
+	assert.Eventually(t, func() bool {
+		return !comp.StatusBarState().Active
+	}, 2*time.Second, 10*time.Millisecond)
+	assert.Empty(t, comp.StatusBarState().Phase)
+}
+
+// A command with no phase must leave the bar alone: most commands
+// return instantly and flipping the bar for them would only flicker.
+func TestHandlerCommandWithoutPhaseLeavesStatusBar(t *testing.T) {
+	mock := &mockCommandHandler{
+		handleFunc: func(context.Context, string, []string) (CommandResult, error) {
+			return CommandResult{Display: iterator.Empty[component.Responsive]()}, nil
+		},
+	}
+	comp := NewComponent(ComponentConfig{
+		StatusBar: StatusBarConfig{Enabled: true},
+	})
+	comp.SetStatusBarState(func(s *StatusBarState) { s.Model = "sonnet" })
+	h, tx, _ := Handler(context.Background(), new(sync.Mutex), comp,
+		term.FuncInterrupter(func(context.Context) error { return nil }),
+		WithCommands(mock),
+	)
+	defer close(tx)
+	h.Resize(80, 9)
+
+	typeText(h, "/history")
+	h.Handle(term.Event{Type: term.EventKey, Key: term.KeyEnter})
+
+	assert.Never(t, func() bool {
+		return comp.StatusBarState().Active
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	assert.Equal(t, "sonnet", comp.StatusBarState().Model)
+}
