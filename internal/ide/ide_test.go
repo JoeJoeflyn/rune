@@ -2743,7 +2743,7 @@ func TestIDEStartingTutorialDispatchesOnReady(t *testing.T) {
 // wired into the workspace handler: a session started with a starting
 // tutorial is onboarding for its whole lifetime — including before the
 // deferred tutorial dispatch, when extensions boot and ask to run
-// commands — and no other session ever is.
+// commands — and survives the gap between playlist tutorials.
 func TestIDEOnboardingActiveGate(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -2784,8 +2784,7 @@ func TestIDEOnboardingActiveGate(t *testing.T) {
 			require.NoError(t, i.tutorial.HandleCommand(context.Background(),
 				textapi.Command{Name: "tutorial", Args: []string{"start", "basics"}}))
 			mu.Unlock()
-			assert.Equal(t, tc.withStarting, gate(),
-				"gate must stay active while the tutorial runs")
+			assert.True(t, gate(), "gate must be active while any tutorial runs")
 
 			mu.Lock()
 			require.NoError(t, i.tutorial.HandleCommand(context.Background(),
