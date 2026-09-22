@@ -25,11 +25,13 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/unstablebuild/blue/logging"
 	"github.com/unstablebuild/rune-go-sdk/api/storageapi"
+	"github.com/unstablebuild/rune-go-sdk/api/storageapi/storagerpc"
 	"github.com/unstablebuild/rune-go-sdk/api/textapi"
 	"github.com/unstablebuild/rune-go-sdk/api/workspaceapi"
 	"github.com/unstablebuild/rune-go-sdk/component"
@@ -340,11 +342,14 @@ func (s *Store) LoadLastSession(ctx context.Context) (Session, error) {
 }
 
 // ListWorkspaceURIs returns the URI of every workspace that has
-// persisted state.
+// persisted state. Documents from before TerminalStatePartition still
+// carry their snapshots inline, and a storage led by another process
+// cannot stream a document that large, so only the identifying fields
+// are requested.
 func (s *Store) ListWorkspaceURIs(
 	ctx context.Context,
 ) ([]workspaceapi.URI, error) {
-	it, err := s.storage.List(ctx, []storageapi.Filter{{
+	it, err := s.storage.List(withFields(ctx, "Kind", "WorkspaceURI"), []storageapi.Filter{{
 		Field: storageapi.Field{
 			FieldPath: []string{"Kind"},
 			Value:     workspaceStateDocumentKind,
@@ -358,7 +363,7 @@ func (s *Store) ListWorkspaceURIs(
 
 	var uris []workspaceapi.URI
 	for it.HasNext() {
-		var doc workspaceStateDocument
+		var doc struct{ WorkspaceURI string }
 		if err := it.NextTo(&doc); err != nil {
 			return nil, fmt.Errorf("idehistory: list workspace states: %w", err)
 		}
@@ -370,36 +375,20 @@ func (s *Store) ListWorkspaceURIs(
 			continue
 		}
 		uris = append(uris, uri)
-		if err := s.migrateInlineTerminals(ctx, uri, doc); err != nil {
-			log.WithFields(log.Fields{logging.KeyClass: "ide.idehistory"}).
-				Warnf("migrate terminals of %q: %v", uri.String(), err)
-		}
 	}
 	return uris, nil
 }
 
-// migrateInlineTerminals moves the snapshots a pre-partition document
-// carries inline into TerminalStatePartition. Without it a workspace
-// that is never reopened would keep its multi-MB document in the listed
-// partition forever. A terminal-state document that already exists is
-// newer than the inline copy and wins.
-func (s *Store) migrateInlineTerminals(
-	ctx context.Context, uri workspaceapi.URI, doc workspaceStateDocument,
-) error {
-	if len(doc.Terminals) == 0 {
-		return nil
+// withFields asks a storage reached over RPC to send only the named
+// top-level fields of each listed document. The projection matches the
+// stored keys verbatim, and marshalers differ on their case, so both
+// spellings are requested.
+func withFields(ctx context.Context, fields ...string) context.Context {
+	all := make([]string, 0, 2*len(fields))
+	for _, field := range fields {
+		all = append(all, field, strings.ToLower(field))
 	}
-	tdoc := terminalStateDocument{
-		Kind:         terminalStateDocumentKind,
-		WorkspaceURI: doc.WorkspaceURI,
-		Terminals:    doc.Terminals,
-	}
-	err := s.terminals.Create(ctx, terminalStateDocumentID(uri), tdoc)
-	if err != nil && !errors.Is(err, storageapi.ErrAlreadyExists) {
-		return err
-	}
-	doc.Terminals = nil
-	return s.storage.Set(ctx, workspaceStateDocumentID(uri), doc)
+	return storagerpc.WithFields(ctx, all...)
 }
 
 // SubscribeEvents subscribes to ed's events and maintains the

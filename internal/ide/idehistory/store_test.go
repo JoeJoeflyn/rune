@@ -675,68 +675,38 @@ func TestLoadFallsBackToInlineTerminals(t *testing.T) {
 	assert.Equal(t, "inline", got.Terminals[0].Name)
 }
 
-// TestListMigratesInlineTerminals pins that the startup listing moves
-// pre-partition snapshots out of the listed documents, so a workspace
-// that is never reopened stops costing a multi-MB decode on every
-// launch.
-func TestListMigratesInlineTerminals(t *testing.T) {
-	cs := newCountingStorage()
-	store := New(cs)
-	uri := mustURI(t, "memory:///legacy-list")
-	require.NoError(t, cs.Set(context.Background(), workspaceStateDocumentID(uri),
+// TestListWorkspaceURIsThroughACappedFollower reproduces the startup
+// failure on a datadir led by another process: a legacy document whose
+// inline snapshots exceed the gRPC frame cap must not abort the listing
+// the scavenger seeds from, since List, unlike Get, is not chunked.
+func TestListWorkspaceURIsThroughACappedFollower(t *testing.T) {
+	svc := cappedGRPCStorage(t)
+	store := New(svc)
+	small := mustURI(t, "memory:///small")
+	legacy := mustURI(t, "memory:///legacy")
+	require.NoError(t, store.StoreWorkspaceState(context.Background(), small,
+		State{Files: []File{{URI: small}}}))
+	require.NoError(t, svc.Set(context.Background(), workspaceStateDocumentID(legacy),
 		workspaceStateDocument{
 			Kind:         workspaceStateDocumentKind,
-			WorkspaceURI: uri.String(),
-			Files:        []fileDoc{{URI: uri.String()}},
-			Terminals:    []terminalDoc{{Name: "inline", WindowID: 3}},
+			WorkspaceURI: legacy.String(),
+			Files:        []fileDoc{{URI: legacy.String()}},
+			Terminals: []terminalDoc{{
+				Name: "inline", Snapshot: largeTerminalSnapshot(),
+			}},
 		}))
 
 	uris, err := store.ListWorkspaceURIs(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []workspaceapi.URI{uri}, uris)
+	assert.ElementsMatch(t, []workspaceapi.URI{small, legacy}, uris)
 
-	docs := rawDocs(t, cs)
-	require.Len(t, docs, 1)
-	assert.NotContains(t, docs[0], "terminals")
-	assert.Len(t, rawDocs(t, storageapi.WithPartition(cs, TerminalStatePartition)), 1)
-
-	got, err := store.LoadWorkspaceState(context.Background(), uri)
+	// The listing is a read: what it cannot carry over the wire it must
+	// leave for the workspace's own reopen to migrate.
+	got, err := store.LoadWorkspaceState(context.Background(), legacy)
 	require.NoError(t, err)
 	require.Len(t, got.Files, 1)
 	require.Len(t, got.Terminals, 1)
 	assert.Equal(t, "inline", got.Terminals[0].Name)
-
-	_, sets, _ := cs.counts()
-	_, err = store.ListWorkspaceURIs(context.Background())
-	require.NoError(t, err)
-	_, setsAfter, _ := cs.counts()
-	assert.Equal(t, sets, setsAfter, "a migrated document must not be rewritten again")
-}
-
-func TestListMigrationKeepsNewerTerminalState(t *testing.T) {
-	cs := newCountingStorage()
-	store := New(cs)
-	uri := mustURI(t, "memory:///legacy-newer")
-	require.NoError(t, cs.Set(context.Background(), workspaceStateDocumentID(uri),
-		workspaceStateDocument{
-			Kind:         workspaceStateDocumentKind,
-			WorkspaceURI: uri.String(),
-			Terminals:    []terminalDoc{{Name: "stale"}},
-		}))
-	require.NoError(t, storageapi.WithPartition(cs, TerminalStatePartition).Set(
-		context.Background(), terminalStateDocumentID(uri),
-		newTerminalStateDocument(uri, []TerminalSession{{Name: "fresh"}})))
-
-	_, err := store.ListWorkspaceURIs(context.Background())
-	require.NoError(t, err)
-
-	got, err := store.LoadWorkspaceState(context.Background(), uri)
-	require.NoError(t, err)
-	require.Len(t, got.Terminals, 1)
-	assert.Equal(t, "fresh", got.Terminals[0].Name)
-	docs := rawDocs(t, cs)
-	require.Len(t, docs, 1)
-	assert.NotContains(t, docs[0], "terminals")
 }
 
 func TestStoreWithoutTerminalsClearsThePreviousTerminalState(t *testing.T) {
