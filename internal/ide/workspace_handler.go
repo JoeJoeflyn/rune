@@ -1171,6 +1171,9 @@ func (h *workspaceManagerHandler) setRightInset(cells int) {
 		return
 	}
 	h.rightInset = cells
+	if h.empty != nil {
+		h.empty.setRightInset(cells)
+	}
 	for _, w := range h.workspaces {
 		if w == nil || w.ex == nil {
 			continue

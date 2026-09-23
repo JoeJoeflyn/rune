@@ -2895,6 +2895,41 @@ func TestIDEOnboardingActiveGate(t *testing.T) {
 	}
 }
 
+// TestIDESetRightInsetReachesTheHomeWorkspace pins that the column
+// reserved for a bar floating over the right edge is relayed to the
+// home workspace too, which is where a session starts.
+func TestIDESetRightInsetReachesTheHomeWorkspace(t *testing.T) {
+	configFile, _ := makeTestFiles(t)
+	dataDir := t.TempDir()
+	mu := new(sync.Mutex)
+	i, err := New("", configFile.Name(), dataDir,
+		pkgtrust.NewStore(dataDir, nil), newTestStorage(t, dataDir),
+		WithPublishEvent(nopPublishEvent),
+		WithExtensionsRunner(FuncExtensionsRunner(testRunnerFn)),
+		WithLocker(mu),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = i.Close() })
+	root := i.Ready()
+	mu.Lock()
+	defer mu.Unlock()
+	root.Resize(160, 40)
+	home := i.workspaceHandler.focusEx()
+	require.True(t, home.home)
+	wmWidth := func() int {
+		width, _ := home.comp.Browser().WindowManagerSize()
+		return width
+	}
+	require.Equal(t, 160, wmWidth())
+
+	i.SetRightInset(3)
+	assert.Equal(t, 157, wmWidth(), "the home workspace reserves the column")
+	assert.Equal(t, 3, i.RightInset())
+
+	i.SetRightInset(0)
+	assert.Equal(t, 160, wmWidth(), "and gets it back")
+}
+
 func TestIDEPlaylistPromptsForNextTutorial(t *testing.T) {
 	newIDE := func(t *testing.T, registerNavigation bool) (*IDE, *sync.Mutex) {
 		t.Helper()
