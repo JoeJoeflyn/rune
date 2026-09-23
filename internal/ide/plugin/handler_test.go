@@ -334,6 +334,6 @@ func (e *pluginTestExecutor) NewPty(context.Context) (workspaceapi.Pty, error) {
 	return workspaceapi.Pty{Master: &mockPtyFile, Slave: &mockPtyFile}, nil
 }
 
-func (e *pluginTestExecutor) SetPtySize(p workspaceapi.Pty, width, height int) error {
+func (e *pluginTestExecutor) SetPtySize(p workspaceapi.Pty, size workspaceapi.PtySize) error {
 	return nil
 }

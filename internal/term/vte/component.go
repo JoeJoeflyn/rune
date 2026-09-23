@@ -233,7 +233,7 @@ func (t *Component) Resize(width, height int) error {
 		return nil
 	}
 
-	err := t.terminal.SetPtySize(t.pty, width, height)
+	err := t.terminal.SetPtySize(t.pty, workspaceapi.PtySize{Columns: width, Rows: height})
 	if err != nil {
 		return err
 	}

@@ -103,7 +103,7 @@ type stubTerminal struct{}
 func (stubTerminal) NewPty(context.Context) (workspaceapi.Pty, error) {
 	return workspaceapi.Pty{}, nil
 }
-func (stubTerminal) SetPtySize(workspaceapi.Pty, int, int) error {
+func (stubTerminal) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error {
 	return nil
 }
 

@@ -3214,7 +3214,7 @@ func (s *terminalSessionTestScheme) NewPty(context.Context) (workspaceapi.Pty, e
 	}, nil
 }
 
-func (s *terminalSessionTestScheme) SetPtySize(workspaceapi.Pty, int, int) error {
+func (s *terminalSessionTestScheme) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error {
 	return nil
 }
 

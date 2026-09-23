@@ -482,7 +482,7 @@ func (e *testExecutor) NewPty(context.Context) (workspaceapi.Pty, error) {
 	return workspaceapi.Pty{Master: &mockPtyFile, Slave: &mockPtyFile}, nil
 }
 
-func (e *testExecutor) SetPtySize(p workspaceapi.Pty, width, height int) error {
+func (e *testExecutor) SetPtySize(p workspaceapi.Pty, size workspaceapi.PtySize) error {
 	return nil
 }
 
@@ -1163,10 +1163,10 @@ func TestComponentInitAsyncExpanderErrorReachesWatcher(t *testing.T) {
 		"StartCommand must not run when the expander errors")
 }
 
-func (e *recordingExecutor) SetPtySize(p workspaceapi.Pty, width, height int) error {
+func (e *recordingExecutor) SetPtySize(p workspaceapi.Pty, size workspaceapi.PtySize) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.setPtySize = append(e.setPtySize, ptySize{width: width, height: height})
+	e.setPtySize = append(e.setPtySize, ptySize{width: size.Columns, height: size.Rows})
 	return nil
 }
 

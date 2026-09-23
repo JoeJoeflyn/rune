@@ -201,7 +201,7 @@ func (s *fixtureScheme) Close() error { return nil }
 func (s *fixtureScheme) NewPty(_ context.Context) (workspaceapi.Pty, error) {
 	panic("not implemented")
 }
-func (s *fixtureScheme) SetPtySize(_ workspaceapi.Pty, _, _ int) error {
+func (s *fixtureScheme) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error {
 	panic("not implemented")
 }
 

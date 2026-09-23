@@ -33,7 +33,6 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/term"
 	"github.com/unstablebuild/rune-go-sdk/tui"
 	"github.com/unstablebuild/tcell/v3"
-	"unstable.build/rune/internal/cell"
 	"unstable.build/rune/internal/term/gui/drawrect"
 	"unstable.build/rune/internal/term/gui/font"
 )
@@ -70,7 +69,7 @@ type GUI struct {
 	fontManager       *font.Manager
 	updateChan        chan term.Event
 	handler           tui.Handler
-	writer            *cell.BufferWriter
+	writer            *frameWriter
 	mouse             *mouse
 	input             *input
 	drag              *dragPoller
@@ -270,7 +269,7 @@ func (g *GUI) Draw(screen *ebiten.Image) {
 	if g.links.armed() {
 		cells = g.links.overlay(cells)
 	}
-	g.renderer.Draw(screen, cells, g.cursor.show,
+	g.renderer.Draw(screen, cells, g.writer.Images(), g.cursor.show,
 		g.cursor.pos, g.cursor.style, float64(g.renderOffset.X),
 		float64(g.renderOffset.Y))
 	g.needsRender = false
@@ -703,7 +702,7 @@ func (g *GUI) resize(width, height int, deviceScale float64) {
 
 	g.handler.Resize(cellsWidth, cellsHeight)
 	g.mouse.resize(cellsWidth, cellsHeight)
-	g.writer = cell.NewBufferWriter(g.ctx, cellsWidth, cellsHeight)
+	g.writer = newFrameWriter(g.ctx, cellsWidth, cellsHeight)
 	if g.renderer != nil {
 		g.renderer.deallocate()
 	}

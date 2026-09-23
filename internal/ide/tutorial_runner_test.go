@@ -1093,6 +1093,7 @@ func (g *gridWriter80x24) SetCell(pos term.Coordinates, c term.Cell) {
 
 func (g *gridWriter80x24) Context() context.Context                              { return context.Background() }
 func (g *gridWriter80x24) UnionAttributes(_ term.Coordinates, _ term.Attributes) {}
+func (g *gridWriter80x24) DrawImage(term.Image) bool                             { return false }
 
 func gridStringContains(g *gridWriter80x24, needle string) bool {
 	for y := range g.h {

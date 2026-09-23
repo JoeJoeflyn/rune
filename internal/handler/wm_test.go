@@ -68,6 +68,7 @@ type recordingWMWriter struct {
 func (w *recordingWMWriter) SetCell(_ term.Coordinates, c term.Cell)           { w.cell = c }
 func (w *recordingWMWriter) UnionAttributes(term.Coordinates, term.Attributes) {}
 func (w *recordingWMWriter) Context() context.Context                          { return context.Background() }
+func (w *recordingWMWriter) DrawImage(term.Image) bool                         { return false }
 
 func TestWindowManagerDimmedWriter(t *testing.T) {
 	red := term.NewRGBColor(255, 0, 0)

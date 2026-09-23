@@ -62,6 +62,7 @@ func (g *attrGridWriter) SetCell(pos term.Coordinates, c term.Cell) {
 
 func (g *attrGridWriter) Context() context.Context                              { return context.Background() }
 func (g *attrGridWriter) UnionAttributes(_ term.Coordinates, _ term.Attributes) {}
+func (g *attrGridWriter) DrawImage(term.Image) bool                             { return false }
 
 func (g *attrGridWriter) rowRunes(y int) string {
 	if y < 0 || y >= g.h {

@@ -686,7 +686,7 @@ type nopTerminal struct{}
 func (nopTerminal) NewPty(context.Context) (workspaceapi.Pty, error) {
 	return workspaceapi.Pty{}, nil
 }
-func (nopTerminal) SetPtySize(workspaceapi.Pty, int, int) error { return nil }
+func (nopTerminal) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error { return nil }
 
 var _ VTE = (*testVte)(nil)
 

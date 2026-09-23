@@ -121,6 +121,7 @@ func (g *gridWriter) SetCell(pos term.Coordinates, c term.Cell) {
 
 func (g *gridWriter) Context() context.Context                              { return context.Background() }
 func (g *gridWriter) UnionAttributes(_ term.Coordinates, _ term.Attributes) {}
+func (g *gridWriter) DrawImage(term.Image) bool                             { return false }
 
 func (g *gridWriter) row(y int) []rune {
 	if y < 0 || y >= g.h {

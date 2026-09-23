@@ -77,6 +77,11 @@ type renderer struct {
 	bufVertices []ebiten.Vertex
 	bufIndices  []uint16
 
+	// images composites image placements over the cell frame. It is
+	// drawn straight onto the screen, so it neither participates in nor
+	// perturbs the frame's row-damage tracking.
+	images imageLayer
+
 	// Reusable scratch for a cell's cluster so routing to the color path
 	// does not allocate per frame; valid only within one cell's handling.
 	emojiCluster []rune
@@ -197,10 +202,11 @@ func (r *renderer) deallocate() {
 		r.drawer.Deallocate()
 		r.drawer = nil
 	}
+	r.images.deallocate()
 }
 
 func (r *renderer) Draw(
-	screen *ebiten.Image, cells [][]term.Cell,
+	screen *ebiten.Image, cells [][]term.Cell, images []term.Image,
 	drawCursor bool, cursorPos term.Coordinates,
 	cursorStyle term.CursorStyle,
 	offsetX, offsetY float64,
@@ -215,10 +221,13 @@ func (r *renderer) Draw(
 	} else {
 		r.repaintRows(cells)
 	}
-	if drawCursor {
-		r.renderCursor(r.frame, cells, cursorPos, cursorStyle)
-	}
 	screen.DrawImage(r.frame, &frameToScreenOptions)
+	r.images.draw(screen, images, r.fontManager, offsetX, offsetY)
+	// The cursor goes onto the screen rather than the frame so it stays
+	// above the image layer without being retained across frames.
+	if drawCursor {
+		r.renderCursor(screen, cells, cursorPos, cursorStyle)
+	}
 	r.snapshot(cells, cursor)
 }
 

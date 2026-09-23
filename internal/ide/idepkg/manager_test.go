@@ -1426,7 +1426,7 @@ func (s *localScheme) NewPty(_ context.Context) (workspaceapi.Pty, error) {
 	panic("not implemented")
 }
 
-func (s *localScheme) SetPtySize(_ workspaceapi.Pty, _, _ int) error {
+func (s *localScheme) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error {
 	panic("not implemented")
 }
 

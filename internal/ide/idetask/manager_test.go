@@ -1313,7 +1313,7 @@ func (f *fakeScheme) NewPty(ctx context.Context) (workspaceapi.Pty, error) {
 	}, nil
 }
 
-func (f *fakeScheme) SetPtySize(workspaceapi.Pty, int, int) error {
+func (f *fakeScheme) SetPtySize(workspaceapi.Pty, workspaceapi.PtySize) error {
 	return nil
 }
 

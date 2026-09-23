@@ -219,7 +219,7 @@ func (w *testLoader) NewPty(context.Context) (workspaceapi.Pty, error) {
 	}, nil
 }
 
-func (w *testLoader) SetPtySize(p workspaceapi.Pty, width, height int) error {
+func (w *testLoader) SetPtySize(p workspaceapi.Pty, size workspaceapi.PtySize) error {
 	return nil
 }
 
@@ -3359,8 +3359,9 @@ func newBlockingResizeWorkspace() *blockingResizeWorkspace {
 }
 
 func (w *blockingResizeWorkspace) SetPtySize(
-	_ workspaceapi.Pty, width, height int,
+	_ workspaceapi.Pty, size workspaceapi.PtySize,
 ) error {
+	width, height := size.Columns, size.Rows
 	if !w.armed.Load() {
 		return nil
 	}
