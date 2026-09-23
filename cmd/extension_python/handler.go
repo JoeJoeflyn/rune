@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/iterator"
 	"unstable.build/rune/internal/component/markdown"
 	"unstable.build/rune/internal/extension/langext"
+	"unstable.build/rune/internal/ide/vctrl"
 )
 
 // pyCommandName is the top-level REPL command exposed by this extension.
@@ -120,6 +122,16 @@ var uvNestedSubcommands = map[string][]string{
 	"cache": {"clean", "dir", "prune", "size"},
 	"self":  {"update", "version"},
 }
+
+// pyEnvSubcommands take an optional project root rather than a uv
+// subcommand as their argument.
+var pyEnvSubcommands = map[string]bool{
+	"enable": true, "disable": true, "status": true,
+}
+
+// pyRootScanDepth bounds root completion so a deep monorepo cannot stall
+// the command prompt.
+const pyRootScanDepth = 6
 
 type pyHandler struct {
 	exec    workspaceapi.Executor
@@ -288,9 +300,10 @@ func (h *pyHandler) resolveRoot(args []string) langext.Root {
 	return fallback
 }
 
-// Complete offers the `python` subcommands at depth 0 and the nested uv
-// subcommands of a command group (tool, pip, cache, self) at depth 1.
-// Deeper positions defer to uv at runtime and return no completions.
+// Complete offers the `python` subcommands at depth 0 and, at depth 1,
+// either a command group's nested uv subcommands (tool, pip, cache, self)
+// or the workspace's project roots (enable, disable, status). Deeper
+// positions defer to uv at runtime and return no completions.
 func (h *pyHandler) Complete(
 	_ context.Context, _ string, args []string,
 ) (iterator.Iterator[string], error) {
@@ -305,8 +318,35 @@ func (h *pyHandler) Complete(
 		if nested, ok := uvNestedSubcommands[args[0]]; ok {
 			return iterator.FromSlice(filterNames(nested, args[1])), nil
 		}
+		if pyEnvSubcommands[args[0]] {
+			prefix := args[1]
+			return iterator.Filter(h.projectRootArgs(), func(root string) bool {
+				return strings.HasPrefix(root, prefix)
+			}), nil
+		}
 	}
 	return iterator.FromSlice[string](nil), nil
+}
+
+// projectRootArgs streams the workspace's Python project roots as
+// resolveRoot accepts them: workspace-relative, "." for the root itself.
+//
+// The matcher is rebuilt per call so an edited .gitignore takes effect.
+func (h *pyHandler) projectRootArgs() iterator.Iterator[string] {
+	if h.fs == nil {
+		return iterator.Empty[string]()
+	}
+	ignore, err := vctrl.LoadGitignore(h.fs)
+	if err != nil {
+		slog.Warn("python root completion ignore rules unavailable", "error", err)
+	}
+	roots := langext.FindProjectRoots(h.fs, h.wsRoot, pyMarkers, ignore, pyRootScanDepth)
+	return iterator.Map(roots, func(r langext.Root) string {
+		if r.RelPath == "" {
+			return "."
+		}
+		return r.RelPath
+	})
 }
 
 // Help renders the manual for the command tree, descending into

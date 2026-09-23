@@ -184,6 +184,50 @@ func TestPyHandlerComplete(t *testing.T) {
 	})
 }
 
+func TestPyHandlerCompleteProjectRoots(t *testing.T) {
+	root := t.TempDir()
+	writeProjectMarker(t, root)
+	writeProjectMarker(t, filepath.Join(root, "svc", "api"))
+	writeProjectMarker(t, filepath.Join(root, "svc", "web"))
+	writeProjectMarker(t, filepath.Join(root, "node_modules", "pkg"))
+	// Excluded by vctrl's common excludes and by .gitignore respectively.
+	writeProjectMarker(t, filepath.Join(root, "build", "gen"))
+	writeProjectMarker(t, filepath.Join(root, "svc", "api", ".venv"))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(root, ".gitignore"), []byte("build/\n"), 0o644))
+	_, handler := newTestPyHandler(t, root, newFakeExecutor())
+
+	complete := func(t *testing.T, args []string) []string {
+		t.Helper()
+		it, err := handler.Complete(context.Background(), "", args)
+		require.NoError(t, err)
+		got, err := iterator.ToSlice(context.Background(), it)
+		require.NoError(t, err)
+		return got
+	}
+
+	for _, sub := range []string{"enable", "disable", "status"} {
+		t.Run(sub+" completes project roots", func(t *testing.T) {
+			assert.Equal(t,
+				[]string{".", "svc/api", "svc/web"},
+				complete(t, []string{sub, ""}))
+		})
+	}
+
+	t.Run("filters roots by prefix", func(t *testing.T) {
+		assert.Equal(t, []string{"svc/api"}, complete(t, []string{"enable", "svc/a"}))
+	})
+
+	t.Run("completed root resolves back to itself", func(t *testing.T) {
+		for _, arg := range complete(t, []string{"enable", ""}) {
+			got := handler.resolveRoot([]string{arg})
+			assert.Equal(t,
+				filepath.Join(root, filepath.Clean(arg)), got.Dir,
+				"completion %q must resolve to the root it names", arg)
+		}
+	})
+}
+
 func TestPyHandlerHelp(t *testing.T) {
 	_, handler := newTestPyHandler(t, t.TempDir(), newFakeExecutor())
 
