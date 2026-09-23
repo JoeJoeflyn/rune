@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/unstablebuild/rune-go-sdk/api/config"
 	"github.com/unstablebuild/rune-go-sdk/api/storageapi/storagestub"
 	"github.com/unstablebuild/rune-go-sdk/api/workspaceapi"
 	"github.com/unstablebuild/rune-go-sdk/handler/repl"
@@ -352,5 +353,31 @@ func TestPyHandlerEnvPolicySubcommands(t *testing.T) {
 		_, known, err = setting.get(ctx, handler.resolveRoot(nil))
 		require.NoError(t, err)
 		assert.False(t, known)
+	})
+
+	// A loose-scripts root is never auto-managed, so `python enable` is
+	// the only way in; it must leave a .venv behind like every other
+	// managed kind.
+	t.Run("enable on a loose scripts root creates a venv", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(
+			filepath.Join(dir, "main.py"), []byte("pass\n"), 0o644))
+		dataDir := t.TempDir()
+		fs := realFS{root: dir}
+		ex := newFakeExecutor()
+		ex.respond("uv python find", scriptedCmd{})
+		ex.respond("uv venv --allow-existing", scriptedCmd{})
+		_, handler := newTestPyHandler(t, dir, ex)
+		handler.syncEnv = func(ctx context.Context, root langext.Root) error {
+			return setupManagedEnvironment(ctx, fs, ex, newFakeNotifications(),
+				fakeInstaller{fs: fs, root: dataDir}, config.NopConfig(), dataDir, root)
+		}
+
+		_, err := handler.HandleCommand(ctx,
+			repl.Command{Name: "python", Args: []string{"enable"}},
+			repl.NopProgressWriter())
+		require.NoError(t, err)
+		assert.Equal(t,
+			[]string{"uv python find", "uv venv --allow-existing"}, ex.callsSnapshot())
 	})
 }

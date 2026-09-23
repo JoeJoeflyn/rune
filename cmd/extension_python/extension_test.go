@@ -177,4 +177,26 @@ func TestExtendWorkspaceEnvPolicy(t *testing.T) {
 		runBringUp(t, dir, storage, wm).waitForInit(t)
 		assert.Equal(t, 1, wm.callCount())
 	})
+
+	// A loose-scripts root has nothing to sync, so it is left alone
+	// entirely: no prompt, no stored policy, no nag.
+	t.Run("loose scripts root is never auto-managed", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(
+			filepath.Join(dir, "main.py"), []byte("pass\n"), 0o644))
+		storage := storagestub.NewInMemoryService()
+		wm := &fakeWindowManager{events: enterEvents}
+
+		b := runBringUp(t, dir, storage, wm)
+		b.waitForInit(t)
+		assert.Zero(t, wm.callCount())
+		assert.Empty(t, b.exec.callsSnapshot())
+		for _, msg := range b.notify.notifs {
+			assert.NotContains(t, msg, "not managing the Python environment")
+		}
+
+		_, known, err := newEnvSetting(storage).get(ctx, dirRoot(dir))
+		require.NoError(t, err)
+		assert.False(t, known, "no policy document may be written")
+	})
 }

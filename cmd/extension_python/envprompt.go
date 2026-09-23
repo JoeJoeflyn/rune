@@ -52,11 +52,18 @@ func newEnvPrompt(root langext.Root, ch chan<- envAnswer) *handler.Prompt {
 	if where == "" {
 		where = root.Dir
 	}
+	// The relative path is exactly what `python enable` accepts as its
+	// optional argument; the workspace root needs no argument at all.
+	target := ""
+	if root.RelPath != "" {
+		target = " " + root.RelPath
+	}
 	message := fmt.Sprintf(
 		"Rune found a Python project at %s.\n\n"+
-			"Let Rune manage its environment? It installs a pinned "+
-			"interpreter, creates and syncs a .venv, and keeps the "+
-			"debugger wired to it.", where)
+			"Let Rune manage its environment? It creates and syncs a "+
+			".venv and keeps the debugger wired to it.\n\n"+
+			"You can change this later with `python enable%s` or "+
+			"`python disable%s`.", where, target, target)
 
 	answer := func(a envAnswer) {
 		select {

@@ -168,6 +168,10 @@ func (e *pyExtension) extendWorkspaceWith(
 // manage the root; ty and ruff are bundled tooling and come up either
 // way. The decision must be made before Initialize, which rejects a
 // second init for the same root.
+//
+// A loose-scripts root is never auto-managed: there is nothing to sync,
+// so guessing would cost a prompt and an interpreter download for no
+// gain. `python enable` still reaches it explicitly.
 func initializeProjectRoot(
 	ctx context.Context,
 	fs workspaceapi.FileSystem,
@@ -181,20 +185,22 @@ func initializeProjectRoot(
 	wm browserapi.WindowManager,
 	root langext.Root,
 ) error {
-	managed := managedEnvironmentAllowed(ctx, notify, setting, wm, root)
-	slog.Warn("initializing project root", "managed",
-		managed, "root", root.Dir, "uri", root.URI)
-	if managed {
-		if err := setupManagedEnvironment(
-			ctx, fs, exec, notify, inst, cfg, dataDir, root); err != nil {
-			_, _ = notify.Notify(browserapi.LevelWarn,
-				"Python environment setup failed, continuing without a synced env: %v", err)
-			slog.Warn("python env setup failed", "root", root.Dir, "error", err)
+	if detectProjectAt(ctx, fs, root.Dir) != kindScript {
+		managed := managedEnvironmentAllowed(ctx, notify, setting, wm, root)
+		slog.Warn("initializing project root", "managed",
+			managed, "root", root.Dir, "uri", root.URI)
+		if managed {
+			if err := setupManagedEnvironment(
+				ctx, fs, exec, notify, inst, cfg, dataDir, root); err != nil {
+				_, _ = notify.Notify(browserapi.LevelWarn,
+					"Python environment setup failed, continuing without a synced env: %v", err)
+				slog.Warn("python env setup failed", "root", root.Dir, "error", err)
+			}
+		} else {
+			_, _ = notify.NotifyOnce(browserapi.LevelInfo,
+				"Rune is not managing the Python environment in %s. "+
+					"Run `python enable` to let it.", root.Dir)
 		}
-	} else {
-		_, _ = notify.NotifyOnce(browserapi.LevelInfo,
-			"Rune is not managing the Python environment in %s. "+
-				"Run `python enable` to let it.", root.Dir)
 	}
 
 	tyBin := resolvePyTool(ctx, fs, exec, inst, "ty")
