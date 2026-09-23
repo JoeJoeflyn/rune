@@ -1300,6 +1300,7 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 	})
 
 	comp = dialoguetui.NewComponent(h.cfg)
+	syncComp := syncComponent{mu: mu, comp: comp, h: h}
 
 	// Replay dialogue history.
 	pendingTools := make(map[string]llmapi.ToolCall)
@@ -1315,7 +1316,7 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 	)
 
 	// Build the agent registry now that tx is available for ask_user.
-	prompter := &tuiPrompter{tx: tx, noti: h.n}
+	prompter := &tuiPrompter{tx: tx, noti: h.n, status: syncComp}
 	askUser := agentools.NewAskUser(prompter)
 	requestSkill := agentools.NewRequestSkill(prompter)
 	exitPlan := agentools.NewExitPlan(h.plansDir, prompter)
@@ -1369,7 +1370,6 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 	spawner.SetHooks(h.hookRunner)
 	spawner.SetAttribution(h.attribution)
 
-	syncComp := syncComponent{mu: mu, comp: comp, h: h}
 	h.openChats.Store(d.ID, syncComp)
 
 	chatAgent := agent.NewAgent(
@@ -1525,7 +1525,7 @@ func (h *aiEditorHandler) handleQuery(cmd textapi.Command) error {
 	serviceFactory := func(model string) (llmapi.Service, llmapi.ModelEntry, error) {
 		return h.modelService(h.ctx, model)
 	}
-	prompter := &tuiPrompter{tx: tx, noti: h.n}
+	prompter := &tuiPrompter{tx: tx, noti: h.n, status: syncComp}
 	spawner := agent.NewGoroutineSpawner(
 		h.dialogueStore, serviceFactory,
 		h.agentsConfig,

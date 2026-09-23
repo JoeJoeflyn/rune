@@ -64,6 +64,12 @@ const (
 // rather than as a waiting agent.
 const idleStatusText = "IDLE"
 
+// AskingStatusText is the phase a host reports while the turn is
+// blocked on a prompt. The bar treats it specially: it outranks a task
+// description, because what the turn was doing matters less than the
+// fact that it cannot go on until the user answers.
+const AskingStatusText = "ASKING"
+
 // DefaultStatusBarBackground and DefaultStatusBarForeground are the
 // bar's base attributes, matching the editor's status bar so both read
 // as the same widget.
@@ -152,6 +158,14 @@ var DefaultStatuses = map[string]StatusBarStatusConfig{
 		Attrs: term.Attributes{Bg: term.ColorGray, Attrs: term.AttrBold},
 		Animation: StatusBarAnimation{
 			Frames: SpinnerFrames("⣉⠶⠶⠒⠒⠒⠶⠶⣉"),
+		},
+	},
+	AskingStatusText: {
+		Attrs: term.Attributes{
+			Fg: term.ColorBlack, Bg: term.ColorYellow, Attrs: term.AttrBold,
+		},
+		Animation: StatusBarAnimation{
+			Frames: SpinnerFrames("⠁⠂⠄⡀⢀⠠⠐⠈"),
 		},
 	},
 	"ERROR": {
@@ -502,6 +516,9 @@ func (b *StatusBar) statusLabel() string {
 func (b *StatusBar) statusName() string {
 	if !b.state.Active {
 		return idleStatusText
+	}
+	if b.state.Phase == AskingStatusText {
+		return b.state.Phase
 	}
 	if b.state.ActiveForm != "" {
 		return b.state.ActiveForm

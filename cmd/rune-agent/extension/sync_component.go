@@ -34,6 +34,7 @@ const (
 	phaseReceiving   = "RECEIVING"
 	phaseToolCalling = "EXECUTING"
 	phaseCompacting  = "COMPACTING"
+	phaseAsking      = dialoguetui.AskingStatusText
 	phaseRateLimited = "ERROR"
 )
 
@@ -59,6 +60,18 @@ func (s syncComponent) setStatusBarState(fn func(*dialoguetui.StatusBarState)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.comp.SetStatusBarState(fn)
+}
+
+// swapPhase reports a new status bar phase and returns the one it
+// replaced, so a caller that owns the bar for the length of an
+// operation can hand it back to whatever was running before.
+func (s syncComponent) swapPhase(phase string) string {
+	var prev string
+	s.setStatusBarState(func(st *dialoguetui.StatusBarState) {
+		prev = st.Phase
+		st.Phase = phase
+	})
+	return prev
 }
 
 // beginTurn moves the bar into the running state. Usage is per turn and

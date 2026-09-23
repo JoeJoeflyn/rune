@@ -293,7 +293,10 @@ func newPromptHandler(t *testing.T, opts promptHandlerOpts) tui.Handler {
 	mu := new(sync.Mutex)
 	dhandler, tx, rx := dialoguetui.Handler(ctx, mu, comp, interrupter)
 
-	prompter := &tuiPrompter{tx: tx, noti: stubNotifications{}}
+	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
+	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
+
+	prompter := &tuiPrompter{tx: tx, noti: stubNotifications{}, status: syncComp}
 	askUser := agentools.NewAskUser(prompter)
 	registry := agent.NewRegistry(askUser)
 	skillReg := skills.NewRegistry(nopFileSystem{}, dirURI(""), nil, nil)
@@ -304,8 +307,6 @@ func newPromptHandler(t *testing.T, opts promptHandlerOpts) tui.Handler {
 		Prompter:     prompter,
 	})
 
-	owner := &aiEditorHandler{n: stubNotifications{}, p: interrupter}
-	syncComp := syncComponent{mu: mu, comp: comp, h: owner}
 	wrapped, msgRx := owner.wrapDialogueHandler(ctx, syncComp, dhandler, rx, "e2e-fixture")
 
 	var wg sync.WaitGroup

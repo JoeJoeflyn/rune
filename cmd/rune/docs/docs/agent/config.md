@@ -385,7 +385,7 @@ how much of the window is already in use before you send anything.
 | `status_bar.enabled` | boolean | `true` | Whether the chat reserves its bottom row for the bar. |
 | `status_bar.layout` | string | see below | Template describing what the bar shows and where. |
 | `status_bar.background_attr` | attribute | `bg: gray, fg: silver` | The bar's base attributes, matching the editor's status bar. `bg` fills the whole row, including the gaps between elements. `fg` is the foreground inherited by every layout component that does not name one of its own, so a theme can restyle the row from a single key. |
-| `status_bar.status` | map | see below | How the `Spinner` and `Status` elements dress per turn state. The keys are the text `Status` draws: `IDLE`, `SENDING`, `REASONING`, `RECEIVING`, `EXECUTING`, `COMPACTING`, and `ERROR`. Each takes an `attr` colouring both elements and an `animation` of `ch`, the spinner frames one character per frame, and `attr`, which overrides the status colours for the spinner alone so the icon can carry a colour of its own. Naming one status, or one of its keys, leaves the rest on their built-in values. |
+| `status_bar.status` | map | see below | How the `Spinner` and `Status` elements dress per turn state. The keys are the text `Status` draws: `IDLE`, `SENDING`, `REASONING`, `RECEIVING`, `EXECUTING`, `COMPACTING`, `ASKING`, and `ERROR`. Each takes an `attr` colouring both elements and an `animation` of `ch`, the spinner frames one character per frame, and `attr`, which overrides the status colours for the spinner alone so the icon can carry a colour of its own. Naming one status, or one of its keys, leaves the rest on their built-in values. `ASKING` is reported while the agent waits on an answer, and is the one status that outranks a running task's description. |
 | `status_bar.gauge_empty_attr` | attribute | `fg: silver, bg: gray` | Styles the gauge's track. It sits flush with the bar, and its foreground doubles as the label color over the unfilled part. |
 | `status_bar.context_gauge_fill_attrs` | list of attribute | green, yellow, red on black | The stops the context gauge's fill ramps through, left edge to right. |
 | `status_bar.cache_gauge_fill_attrs` | list of attribute | red, yellow, green on black | The same for the cache gauge, listed backwards because a full cache is good news where a full context window is not. |
@@ -519,6 +519,15 @@ extensions:
               flags: bold
             animation:
               ch: "⣉⠶⠶⠒⠒⠒⠶⠶⣉"
+              attr:
+                fg: default
+          ASKING:
+            attr:
+              fg: black
+              bg: yellow
+              flags: bold
+            animation:
+              ch: "⠁⠂⠄⡀⢀⠠⠐⠈"
               attr:
                 fg: default
           ERROR:

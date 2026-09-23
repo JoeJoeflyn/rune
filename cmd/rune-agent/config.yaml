@@ -168,6 +168,15 @@ extensions:
               ch: "⣉⠶⠶⠒⠒⠒⠶⠶⣉"
               attr:
                 fg: "default"
+          ASKING:
+            attr:
+              fg: "black"
+              bg: "yellow"
+              flags: bold
+            animation:
+              ch: "⠁⠂⠄⡀⢀⠠⠐⠈"
+              attr:
+                fg: "default"
           ERROR:
             attr:
               fg: "default"
