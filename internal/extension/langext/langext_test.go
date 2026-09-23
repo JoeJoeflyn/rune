@@ -914,10 +914,10 @@ func (e *fakeEditor) SetDefaultAttributes(textapi.Handler, term.Attributes) erro
 // semantics so the upward marker walk can be exercised without touching
 // disk.
 type memFS struct {
-	root  string
-	files map[string]bool
-	dirs  map[string]bool
-	stats atomic.Int32
+	root     string
+	files    map[string]bool
+	dirs     map[string]bool
+	stats    atomic.Int32
 	readDirs atomic.Int32
 }
 
