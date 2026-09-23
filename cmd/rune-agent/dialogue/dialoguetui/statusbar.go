@@ -254,6 +254,15 @@ type StatusBarConfig struct {
 	// Shader names an effect drawn over the whole bar while a turn
 	// runs. An empty name leaves the bar unshaded.
 	Shader string
+	// ShaderFPS is the cadence the effect is redrawn at. A zero or
+	// negative value falls back to DefaultStatusBarShaderFPS.
+	ShaderFPS int
+	// ShaderLoop is how long one visual loop of the effect lasts.
+	// Effects whose clock runs off the frame index rather than
+	// against the loop, such as blaze and inferno, animate in real
+	// time and ignore it. A zero or negative value falls back to
+	// DefaultStatusBarShaderLoop.
+	ShaderLoop time.Duration
 	// DurationPrecision, when positive, truncates the elapsed time to
 	// this granularity.
 	DurationPrecision time.Duration

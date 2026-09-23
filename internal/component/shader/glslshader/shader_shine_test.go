@@ -30,6 +30,13 @@ func TestShine(t *testing.T) {
 		DefaultShineParams(),
 		term.Attributes{Fg: term.NewRGBColor(80, 80, 80)},
 	))
+
+	t.Run("paints only text", func(t *testing.T) {
+		assertPaintsOnlyText(t, Shine(
+			DefaultShineParams(),
+			term.Attributes{Fg: term.NewRGBColor(80, 80, 80)},
+		))
+	})
 }
 
 // TestShineSweep renders the entire sweep of the shine effect over a filled
