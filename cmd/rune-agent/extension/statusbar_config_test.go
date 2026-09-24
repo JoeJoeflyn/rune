@@ -181,8 +181,7 @@ func TestShippedStatusBarConfigParses(t *testing.T) {
 		"the cache ramp lists the context ramp's stops backwards")
 	assert.EqualValues(t, dialoguetui.DefaultGaugeStartRune, got.GaugeStartRune)
 	assert.EqualValues(t, dialoguetui.DefaultGaugeEndRune, got.GaugeEndRune)
-	assert.True(t, dialoguetui.ValidStatusBarShader(got.Shader))
-	assert.NotEmpty(t, got.Shader, "the shipped config names an effect")
+	assert.Empty(t, got.Shader, "the shipped bar is not animated")
 }
 
 // An effect the bar cannot build must not be accepted, or the config
