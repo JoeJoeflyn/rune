@@ -102,7 +102,7 @@ type parserHandler struct {
 // use a common api for alternate and primary buffers
 // used to simplify critical path calls and avoid extra branches
 type screenBuffer interface {
-	SetCursorAtScreen(c term.Coordinates, relative bool)
+	SetCursorAtScreen(c term.Coordinates)
 	CursorAtScreen() term.Coordinates
 	CursorAtScroll() term.Coordinates
 	Insert(c rune, width int, charset vteparser.CharsetIndex)
@@ -300,7 +300,7 @@ func (t *parserHandler) input(c rune) {
 	pos.X += advance
 
 	if pos.X < t.width {
-		t.setCursorAtScreen(pos, t.modeOrigin)
+		t.setCursorAtScreen(pos)
 	} else {
 		// implementations that use DECAWM usually expect the next call to Input
 		// to push the cursor down to the next line; i.e. there could be
@@ -369,7 +369,7 @@ func (t *parserHandler) inputGlyphRun(run []byte) int {
 		pos.X -= last
 		t.shouldWrap = true
 	}
-	t.setCursorAtScreen(pos, t.modeOrigin)
+	t.setCursorAtScreen(pos)
 	return size
 }
 
@@ -406,11 +406,11 @@ func (t *parserHandler) inputASCIIRun(run []byte) int {
 	}
 	pos.X += w
 	if pos.X < t.width {
-		t.setCursorAtScreen(pos, t.modeOrigin)
+		t.setCursorAtScreen(pos)
 	} else {
 		// wrapLine relies on the cursor sitting on the marked cell.
 		pos.X = t.width - 1
-		t.setCursorAtScreen(pos, t.modeOrigin)
+		t.setCursorAtScreen(pos)
 		t.shouldWrap = true
 	}
 	return w
@@ -554,7 +554,7 @@ func (t *parserHandler) GotoCol(col int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	t.goTo(t.sync.buf.CursorAtScreen().Y, col)
+	t.setColumn(col)
 }
 
 // Insert blank characters in current line starting from cursor.
@@ -576,7 +576,7 @@ func (t *parserHandler) MoveUp(rows int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	t.moveUp(rows)
+	t.moveRows(-rows)
 }
 
 // Move cursor down `rows`.
@@ -584,7 +584,7 @@ func (t *parserHandler) MoveDown(rows int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	t.moveDown(rows)
+	t.moveRows(rows)
 }
 
 // IdentifyTerminal identifies the terminal implementatino.
@@ -609,6 +609,9 @@ func (t *parserHandler) DeviceStatus(status int) {
 	case 6:
 		t.sync.mu.Lock()
 		pos := t.sync.buf.CursorAtScreen()
+		if t.modeOrigin {
+			pos.Y -= min(pos.Y, t.sync.buf.TopScrollableRegion())
+		}
 		t.sync.mu.Unlock()
 		text := fmt.Sprintf("\x1b[%d;%dR", pos.Y+1, pos.X+1)
 		_, err = t.pty.Master.Write([]byte(text))
@@ -625,8 +628,7 @@ func (t *parserHandler) MoveForward(cols int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	t.moveRight(cols)
-	t.shouldWrap = false
+	t.setColumn(t.sync.buf.CursorAtScreen().X + cols)
 }
 
 // Move cursor backward `cols`.
@@ -634,8 +636,7 @@ func (t *parserHandler) MoveBackward(cols int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	t.moveLeft(cols)
-	t.shouldWrap = false
+	t.setColumn(t.sync.buf.CursorAtScreen().X - cols)
 }
 
 // Move cursor down `rows` and set to column 1.
@@ -643,9 +644,8 @@ func (t *parserHandler) MoveDownAndCR(rows int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	pos := t.sync.buf.CursorAtScreen()
-	pos.Y += rows
-	t.goTo(pos.Y, 0)
+	t.moveRows(rows)
+	t.setColumn(0)
 }
 
 // Move cursor up `rows` and set to column 1.
@@ -653,9 +653,8 @@ func (t *parserHandler) MoveUpAndCR(rows int) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	pos := t.sync.buf.CursorAtScreen()
-	pos.Y -= rows
-	t.goTo(pos.Y, 0)
+	t.moveRows(-rows)
+	t.setColumn(0)
 }
 
 // Put a tab.
@@ -698,7 +697,7 @@ func (t *parserHandler) PutTab() {
 			break
 		}
 
-		t.sync.buf.SetCursorAtScreen(pos, false)
+		t.sync.buf.SetCursorAtScreen(pos)
 
 		if t.tabs.get(pos.X) {
 			break
@@ -711,11 +710,11 @@ func (t *parserHandler) Backspace() {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	if t.sync.buf.CursorAtScreen().X <= 0 {
+	x := t.sync.buf.CursorAtScreen().X
+	if x <= 0 {
 		return
 	}
-	t.moveLeft(1)
-	t.shouldWrap = false
+	t.setColumn(x - 1)
 }
 
 // Carriage return.
@@ -1015,7 +1014,7 @@ func (t *parserHandler) ReverseIndex() {
 		t.scrollDown(1)
 	case pos.Y > 0:
 		pos.Y--
-		t.setCursorAtScreen(pos, false)
+		t.setCursorAtScreen(pos)
 	}
 	t.shouldWrap = false
 }
@@ -1141,6 +1140,7 @@ func (t *parserHandler) SetPrivateMode(mode vteparser.PrivateMode) {
 		t.deccolm()
 	case vteparser.PrivateModeOrigin:
 		t.modeOrigin = true
+		t.goTo(0, 0)
 	case vteparser.PrivateModeScreen:
 		/* DECSCNM not supported */
 	case vteparser.PrivateModeLineWrap:
@@ -1191,6 +1191,7 @@ func (t *parserHandler) UnsetPrivateMode(mode vteparser.PrivateMode) {
 		t.deccolm()
 	case vteparser.PrivateModeOrigin:
 		t.modeOrigin = false
+		t.goTo(0, 0)
 	case vteparser.PrivateModeScreen:
 		/* DECSCNM not supported */
 	case vteparser.PrivateModeLineWrap:
@@ -1552,7 +1553,7 @@ func (t *parserHandler) carriageReturn() {
 	t.setCursorAtScreen(term.Coordinates{
 		X: 0,
 		Y: t.sync.buf.CursorAtScreen().Y,
-	}, false)
+	})
 }
 
 func (t *parserHandler) scrollDown(rows int) bool {
@@ -1650,32 +1651,30 @@ func (t *parserHandler) scrollDownAltRelative(start int, count int) bool {
 	return ok
 }
 
-// moveUp moves the cursor up delta lines.
-func (t *parserHandler) moveUp(delta int) {
-	pos := t.sync.buf.CursorAtScreen()
-	pos.Y -= delta
-	t.goTo(pos.Y, pos.X)
+// moveRows moves the cursor by delta rows. A cursor inside the margins
+// stops at them and one outside stops at the screen edge (DEC STD 070;
+// xterm CursorUp and CursorDown).
+func (t *parserHandler) moveRows(delta int) {
+	buf := t.sync.buf
+	pos := buf.CursorAtScreen()
+	top, bottom := 0, t.height-1
+	if delta > 0 && pos.Y < buf.BottomScrollableRegion() {
+		bottom = buf.BottomScrollableRegion() - 1
+	}
+	if delta < 0 && pos.Y >= buf.TopScrollableRegion() {
+		top = buf.TopScrollableRegion()
+	}
+	pos.Y = max(top, min(pos.Y+delta, bottom))
+	t.setCursorAtScreen(pos)
+	t.shouldWrap = false
 }
 
-// moveDown moves the cursor down delta lines.
-func (t *parserHandler) moveDown(delta int) {
+// setColumn moves the cursor to col on its row.
+func (t *parserHandler) setColumn(col int) {
 	pos := t.sync.buf.CursorAtScreen()
-	pos.Y += delta
-	t.goTo(pos.Y, pos.X)
-}
-
-// moveRight moves the cursor right delta cells.
-func (t *parserHandler) moveRight(delta int) {
-	pos := t.sync.buf.CursorAtScreen()
-	pos.X += delta
-	t.goTo(pos.Y, pos.X)
-}
-
-// moveLeft moves the cursor left delta cells.
-func (t *parserHandler) moveLeft(delta int) {
-	pos := t.sync.buf.CursorAtScreen()
-	pos.X -= delta
-	t.goTo(pos.Y, pos.X)
+	pos.X = max(0, min(col, t.width-1))
+	t.setCursorAtScreen(pos)
+	t.shouldWrap = false
 }
 
 func (t *parserHandler) setCursorShape(shape vteparser.CursorShape) {
@@ -1711,8 +1710,7 @@ func (t *parserHandler) setScrollingRegion(top, bottom int, end bool) {
 		return
 	}
 	t.sync.buf.SetScrollableRegion(top, bottom, false)
-	t.shouldWrap = false
-	t.setCursorAtScreen(term.Coordinates{}, true)
+	t.goTo(0, 0)
 }
 
 func (t *parserHandler) wrapLine() {
@@ -1739,13 +1737,13 @@ func (t *parserHandler) index() {
 		t.scrollUp(1)
 	case pos.Y < t.height-1:
 		pos.Y++
-		t.setCursorAtScreen(pos, false)
+		t.setCursorAtScreen(pos)
 	}
 	t.shouldWrap = false
 }
 
-func (t *parserHandler) setCursorAtScreen(pos term.Coordinates, relative bool) {
-	t.sync.buf.SetCursorAtScreen(pos, relative)
+func (t *parserHandler) setCursorAtScreen(pos term.Coordinates) {
+	t.sync.buf.SetCursorAtScreen(pos)
 }
 
 func (t *parserHandler) endOfLine(y int) int {
@@ -1808,18 +1806,17 @@ func (t *parserHandler) usedAlternate() bool {
 	return t.usedAlt
 }
 
+// goTo implements CUP: line and col are relative to the origin, which
+// DECOM moves to the top margin and confines to the region.
 func (t *parserHandler) goTo(line int, col int) {
-	var yoffset, maxy int
+	top, bottom := 0, t.height-1
 	if t.modeOrigin {
-		yoffset = t.sync.buf.TopScrollableRegion()
-		maxy = t.sync.buf.BottomScrollableRegion() - 1
-	} else {
-		maxy = t.height - 1
+		top = t.sync.buf.TopScrollableRegion()
+		bottom = t.sync.buf.BottomScrollableRegion() - 1
 	}
-	pos := term.Coordinates{
-		Y: max(0, min(line+yoffset, maxy)),
+	t.setCursorAtScreen(term.Coordinates{
+		Y: max(top, min(line+top, bottom)),
 		X: max(0, min(col, t.width-1)),
-	}
-	t.setCursorAtScreen(pos, t.modeOrigin)
+	})
 	t.shouldWrap = false
 }

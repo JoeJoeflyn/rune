@@ -380,7 +380,7 @@ func (b *PrimaryBuffer) Reset() {
 	b.Cells.ResetPerformanceCapacity(b.height, b.width)
 	b.resetLinesTrim(0, b.height, true, b.defaultChar)
 	b.SetScrollableRegion(0, 0, true)
-	b.SetCursorAtScreen(term.Coordinates{}, false)
+	b.SetCursorAtScreen(term.Coordinates{})
 }
 
 // Clear clears the screen and moves the current view into history, effectively

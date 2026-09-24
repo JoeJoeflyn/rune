@@ -1322,9 +1322,9 @@ func TestPrimaryScrollingRegion(t *testing.T) {
 		p := newScreen(t)
 		rowsBefore := p.sync.primBuf.Rows()
 		p.SetScrollingRegion(2, 4, false)
-		assert.Equal(t, term.Coordinates{Y: 1}, p.sync.buf.CursorAtScreen(),
-			"DECSTBM homes the cursor to the region")
-		p.setCursorAtScreen(term.Coordinates{Y: 3}, false)
+		assert.Equal(t, term.Coordinates{}, p.sync.buf.CursorAtScreen(),
+			"DECSTBM homes the cursor to the screen unless DECOM is set")
+		p.setCursorAtScreen(term.Coordinates{Y: 3})
 		p.Linefeed()
 		assertEqualBuf(t, p, "aaaa\ncccc\ndddd\n    \neeee")
 		assert.Equal(t, rowsBefore, p.sync.primBuf.Rows(), "nothing was saved")
@@ -1335,7 +1335,7 @@ func TestPrimaryScrollingRegion(t *testing.T) {
 		p := newScreen(t)
 		rowsBefore := p.sync.primBuf.Rows()
 		p.SetScrollingRegion(1, 4, false)
-		p.setCursorAtScreen(term.Coordinates{Y: 3}, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 3})
 		p.Linefeed()
 		assertEqualBuf(t, p, "bbbb\ncccc\ndddd\n    \neeee")
 		assert.Equal(t, rowsBefore+1, p.sync.primBuf.Rows(), "the top row went to history")
@@ -1345,7 +1345,7 @@ func TestPrimaryScrollingRegion(t *testing.T) {
 	t.Run("reverse index scrolls the region down", func(t *testing.T) {
 		p := newScreen(t)
 		p.SetScrollingRegion(2, 4, false)
-		p.setCursorAtScreen(term.Coordinates{Y: 1}, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 1})
 		p.ReverseIndex()
 		assertEqualBuf(t, p, "aaaa\n    \nbbbb\ncccc\neeee")
 	})
@@ -1353,7 +1353,7 @@ func TestPrimaryScrollingRegion(t *testing.T) {
 	t.Run("insert and delete lines stay inside the region", func(t *testing.T) {
 		p := newScreen(t)
 		p.SetScrollingRegion(2, 4, false)
-		p.setCursorAtScreen(term.Coordinates{Y: 1}, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 1})
 		p.InsertBlankLines(1)
 		assertEqualBuf(t, p, "aaaa\n    \nbbbb\ncccc\neeee")
 		p.DeleteLines(1)
@@ -1476,7 +1476,7 @@ func TestIndexOutsideScrollingRegion(t *testing.T) {
 				p.Resize(4, 5)
 				writeToBuffer(p, screen)
 				p.SetScrollingRegion(tt.top, tt.bottom, false)
-				p.setCursorAtScreen(tt.cursor, false)
+				p.setCursorAtScreen(tt.cursor)
 				tt.input(p)
 				assertEqualBuf(t, p, tt.want)
 				assert.Equal(t, tt.wantCursor, p.sync.buf.CursorAtScreen())
@@ -1501,16 +1501,19 @@ func forEachScreen(t *testing.T, name string, fn func(t *testing.T, p *parserHan
 	}
 }
 
-// TestSetScrollingRegion covers the bounds of DECSTBM: a region of fewer
-// than two rows is ignored and the bottom is clamped to the screen
-// (kitty screen_set_margins, screen.c:1463; xterm CASE_DECSTBM).
+// TestSetScrollingRegion covers DECSTBM itself: a region of fewer than
+// two rows is ignored, the bottom is clamped to the screen, and the
+// cursor is homed to the origin, which is the top margin only under
+// DECOM (kitty screen_set_margins, screen.c:1463; xterm CASE_DECSTBM).
 func TestSetScrollingRegion(t *testing.T) {
 	tests := []struct {
 		name        string
 		top, bottom int
 		end         bool
+		origin      bool
 		wantTop     int
 		wantBottom  int
+		wantCursor  term.Coordinates
 		ignored     bool
 	}{
 		{
@@ -1543,18 +1546,212 @@ func TestSetScrollingRegion(t *testing.T) {
 			top:  1, end: true,
 			wantTop: 0, wantBottom: 6,
 		},
+		{
+			name: "the cursor is homed to the screen",
+			top:  3, bottom: 5,
+			wantTop: 2, wantBottom: 5,
+		},
+		{
+			name: "under DECOM the cursor is homed to the top margin",
+			top:  3, bottom: 5, origin: true,
+			wantTop: 2, wantBottom: 5, wantCursor: term.Coordinates{Y: 2},
+		},
 	}
 	for _, tt := range tests {
 		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, _ *workspacetest.File) {
 			p.Resize(8, 6)
+			if tt.origin {
+				p.SetPrivateMode(vteparser.PrivateModeOrigin)
+			}
 			before := term.Coordinates{X: 2, Y: 1}
-			p.setCursorAtScreen(before, false)
+			p.setCursorAtScreen(before)
 			p.SetScrollingRegion(tt.top, tt.bottom, tt.end)
 			assert.Equal(t, tt.wantTop, p.sync.buf.TopScrollableRegion())
 			assert.Equal(t, tt.wantBottom, p.sync.buf.BottomScrollableRegion())
 			if tt.ignored {
 				assert.Equal(t, before, p.sync.buf.CursorAtScreen(), "an ignored DECSTBM leaves the cursor")
+			} else {
+				assert.Equal(t, tt.wantCursor, p.sync.buf.CursorAtScreen())
 			}
+		})
+	}
+}
+
+// TestOriginMode covers DECOM (DECSET 6): absolute addressing is
+// relative to the top margin and confined to the region, while relative
+// motion, printing and reports never re-apply the offset (kitty
+// screen_cursor_position and report_device_status, screen.c:2478,
+// :2996).
+func TestOriginMode(t *testing.T) {
+	// The region is rows 3 to 5 of a 6-row screen.
+	const top, bottom = 2, 4
+	tests := []struct {
+		name       string
+		input      func(p *parserHandler)
+		want       term.Coordinates
+		wantScreen string
+		wantReport string
+	}{
+		{
+			name:  "CUP is relative to the top margin",
+			input: func(p *parserHandler) { p.Goto(1, 3) },
+			want:  term.Coordinates{X: 3, Y: top + 1},
+		},
+		{
+			name:  "CUP stops at the bottom margin",
+			input: func(p *parserHandler) { p.Goto(10, 0) },
+			want:  term.Coordinates{Y: bottom},
+		},
+		{
+			name:  "VPA is relative to the top margin",
+			input: func(p *parserHandler) { p.GotoLine(1) },
+			want:  term.Coordinates{Y: top + 1},
+		},
+		{
+			name:  "CHA keeps the row",
+			input: func(p *parserHandler) { p.Goto(1, 0); p.GotoCol(5) },
+			want:  term.Coordinates{X: 5, Y: top + 1},
+		},
+		{
+			name:  "CUF and CUB keep the row",
+			input: func(p *parserHandler) { p.Goto(1, 0); p.MoveForward(2); p.MoveBackward(1) },
+			want:  term.Coordinates{X: 1, Y: top + 1},
+		},
+		{
+			name:  "CUU stops at the top margin",
+			input: func(p *parserHandler) { p.Goto(1, 0); p.MoveUp(5) },
+			want:  term.Coordinates{Y: top},
+		},
+		{
+			name:  "CUD stops at the bottom margin",
+			input: func(p *parserHandler) { p.Goto(0, 0); p.MoveDown(10) },
+			want:  term.Coordinates{Y: bottom},
+		},
+		{
+			name:  "CNL moves down one row",
+			input: func(p *parserHandler) { p.Goto(0, 3); p.MoveDownAndCR(1) },
+			want:  term.Coordinates{Y: top + 1},
+		},
+		{
+			name:  "CPL moves up one row",
+			input: func(p *parserHandler) { p.Goto(2, 3); p.MoveUpAndCR(1) },
+			want:  term.Coordinates{Y: top + 1},
+		},
+		{
+			name:       "printing advances along the row",
+			input:      func(p *parserHandler) { p.Goto(0, 0); writeToBuffer(p, "abc") },
+			want:       term.Coordinates{X: 3, Y: top},
+			wantScreen: "        \n        \nabc     \n        \n        \n        ",
+		},
+		{
+			name:  "linefeed moves down one row",
+			input: func(p *parserHandler) { p.Goto(0, 0); p.Linefeed() },
+			want:  term.Coordinates{Y: top + 1},
+		},
+		{
+			name:       "CPR reports relative to the origin",
+			input:      func(p *parserHandler) { p.Goto(1, 2); p.DeviceStatus(6) },
+			want:       term.Coordinates{X: 2, Y: top + 1},
+			wantReport: "\x1b[2;3R",
+		},
+		{
+			name: "setting DECOM homes the cursor to the origin",
+			input: func(p *parserHandler) {
+				p.UnsetPrivateMode(vteparser.PrivateModeOrigin)
+				p.Goto(5, 5)
+				p.SetPrivateMode(vteparser.PrivateModeOrigin)
+			},
+			want: term.Coordinates{Y: top},
+		},
+		{
+			name: "resetting DECOM homes the cursor to the screen",
+			input: func(p *parserHandler) {
+				p.Goto(1, 5)
+				p.UnsetPrivateMode(vteparser.PrivateModeOrigin)
+			},
+			want: term.Coordinates{},
+		},
+	}
+	for _, tt := range tests {
+		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, pty *workspacetest.File) {
+			p.Resize(8, 6)
+			p.SetScrollingRegion(top+1, bottom+1, false)
+			p.SetPrivateMode(vteparser.PrivateModeOrigin)
+			pty.Writes = nil
+			tt.input(p)
+			assert.Equal(t, tt.want, p.sync.buf.CursorAtScreen())
+			if tt.wantScreen != "" {
+				assertEqualBuf(t, p, tt.wantScreen)
+			}
+			if tt.wantReport != "" {
+				assertWriteToPty(t, pty, tt.wantReport)
+			}
+		})
+	}
+}
+
+// TestCursorMotionWithinMargins covers CUU and CUD without DECOM: a
+// cursor inside the region stops at its margins and one outside stops
+// at the screen edge (DEC STD 070; xterm CursorUp and CursorDown).
+func TestCursorMotionWithinMargins(t *testing.T) {
+	// The region is rows 3 to 5 of a 6-row screen.
+	const top, bottom = 2, 4
+	tests := []struct {
+		name  string
+		start term.Coordinates
+		input func(p *parserHandler)
+		want  term.Coordinates
+	}{
+		{
+			name:  "CUD inside the region stops at the bottom margin",
+			start: term.Coordinates{Y: top},
+			input: func(p *parserHandler) { p.MoveDown(10) },
+			want:  term.Coordinates{Y: bottom},
+		},
+		{
+			name:  "CUD above the region stops at the bottom margin",
+			start: term.Coordinates{Y: 0},
+			input: func(p *parserHandler) { p.MoveDown(10) },
+			want:  term.Coordinates{Y: bottom},
+		},
+		{
+			name:  "CUD below the region stops at the last line",
+			start: term.Coordinates{Y: bottom + 1},
+			input: func(p *parserHandler) { p.MoveDown(10) },
+			want:  term.Coordinates{Y: 5},
+		},
+		{
+			name:  "CUU inside the region stops at the top margin",
+			start: term.Coordinates{Y: bottom},
+			input: func(p *parserHandler) { p.MoveUp(10) },
+			want:  term.Coordinates{Y: top},
+		},
+		{
+			name:  "CUU below the region stops at the top margin",
+			start: term.Coordinates{Y: 5},
+			input: func(p *parserHandler) { p.MoveUp(10) },
+			want:  term.Coordinates{Y: top},
+		},
+		{
+			name:  "CUU above the region stops at the first line",
+			start: term.Coordinates{Y: 1},
+			input: func(p *parserHandler) { p.MoveUp(10) },
+			want:  term.Coordinates{},
+		},
+		{
+			name:  "CUP is not confined to the region",
+			start: term.Coordinates{Y: top},
+			input: func(p *parserHandler) { p.Goto(5, 0) },
+			want:  term.Coordinates{Y: 5},
+		},
+	}
+	for _, tt := range tests {
+		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, _ *workspacetest.File) {
+			p.Resize(8, 6)
+			p.SetScrollingRegion(top+1, bottom+1, false)
+			p.setCursorAtScreen(tt.start)
+			tt.input(p)
+			assert.Equal(t, tt.want, p.sync.buf.CursorAtScreen())
 		})
 	}
 }

@@ -650,7 +650,7 @@ func TestComponentAlternateScroll(t *testing.T) {
 		require.NoError(t, comp.Resize(5, 3))
 
 		resetBuffer(t, ph, "abcde\nfg   \n     ")
-		ph.setCursorAtScreen(term.Coordinates{X: 2, Y: 1}, false)
+		ph.setCursorAtScreen(term.Coordinates{X: 2, Y: 1})
 
 		assert.False(t, comp.IsAltBuffer(),
 			"primary must be the active buffer by default")
@@ -680,7 +680,7 @@ func TestComponentAlternateScroll(t *testing.T) {
 		require.True(t, comp.IsAltBuffer(),
 			"alt buffer must be active after DECSET 1049")
 		resetBuffer(t, ph, "ALT  \nBUF  \n     ")
-		ph.setCursorAtScreen(term.Coordinates{X: 3, Y: 0}, false)
+		ph.setCursorAtScreen(term.Coordinates{X: 3, Y: 0})
 
 		scroll, mu := comp.AlternateScroll()
 		require.NotNil(t, scroll)
