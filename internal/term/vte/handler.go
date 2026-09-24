@@ -537,6 +537,13 @@ func (e *Handler) handleInput(ev term.Event, enc keyEncoding) (handled bool, raw
 	}
 
 	if ev.Type == term.EventMouse {
+		if raw, tracking := e.mouseDriver.report(ev); tracking {
+			e.log(log.TraceLevel, "input: mouse report: raw=%q", raw)
+			return len(raw) == 0, raw
+		}
+		if raw := e.mouseDriver.alternateScroll(ev); raw != nil {
+			return false, raw
+		}
 		e.mouseDriver.hookRawBytes = nil
 		_, handled = e.mouse.Handle(ev)
 		raw = e.mouseDriver.hookRawBytes

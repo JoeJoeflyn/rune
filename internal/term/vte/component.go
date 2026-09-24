@@ -294,39 +294,28 @@ func (t *Component) ModeBracketedPaste() bool {
 	return t.parserHandler.modeBracketedPaste
 }
 
-// MouseModeReportMouseClicks returns whether PrivateMode 1000 (MouseModeVT200) is set.
-func (t *Component) MouseModeReportMouseClicks() bool {
+// mouseModes resolves the mouse modes the program has set. The modes
+// are kept as independent flags, so the most capable one set wins.
+func (t *Component) mouseModes() (m mouseModes) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.parserHandler.modeReportMouseClicks
-}
-
-// MouseModeReportCellMouseMotion returns whether PrivateMode 1002 (MouseModeButtonEvent) is set.
-func (t *Component) MouseModeReportCellMouseMotion() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.parserHandler.modeReportCellMouseMotion
-}
-
-// MouseModeReportAllMouseMotion returns whether PrivateMode 1003 (MouseModeAnyEvent) is set.
-func (t *Component) MouseModeReportAllMouseMotion() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.parserHandler.modeReportAllMouseMotion
-}
-
-// MouseModeUtf8Mouse returns whether PrivateMode 1005 (MouseExtUTF) is set.
-func (t *Component) MouseModeUtf8Mouse() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.parserHandler.modeUtf8Mouse
-}
-
-// MouseModeSgrMouse returns whether PrivateMode 1006 (MouseExtSGR) is set.
-func (t *Component) MouseModeSgrMouse() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.parserHandler.modeSgrMouse
+	p := t.parserHandler
+	switch {
+	case p.modeReportAllMouseMotion:
+		m.tracking = mouseTrackingAny
+	case p.modeReportCellMouseMotion:
+		m.tracking = mouseTrackingButton
+	case p.modeReportMouseClicks:
+		m.tracking = mouseTrackingClick
+	}
+	switch {
+	case p.modeSgrMouse:
+		m.encoding = mouseEncodingSGR
+	case p.modeUtf8Mouse:
+		m.encoding = mouseEncodingUTF8
+	}
+	m.alternateScroll = p.useAlt && p.modeAlternateScroll
+	return m
 }
 
 // CursorVisible returns whether the cursor should be rendered or not.
