@@ -732,15 +732,7 @@ func (t *parserHandler) Linefeed() {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	buf := t.sync.buf
-	pos := buf.CursorAtScreen()
-	pos.Y++
-
-	if pos.Y >= buf.BottomScrollableRegion() {
-		t.scrollUp(1)
-	} else if pos.Y < t.height {
-		t.setCursorAtScreen(pos, t.modeOrigin)
-	}
+	t.index()
 }
 
 // Ring the bell.
@@ -1011,17 +1003,21 @@ func (t *parserHandler) ResetState() {
 //
 // Move the active position to the same horizontal position on the
 // preceding line. If the active position is at the top margin, a scroll
-// down is performed.
+// down is performed; above it the cursor stops at the first line
+// (kitty screen_reverse_index, screen.c:2435).
 func (t *parserHandler) ReverseIndex() {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
 	pos := t.sync.buf.CursorAtScreen()
-	if pos.Y <= t.sync.buf.TopScrollableRegion() {
+	switch {
+	case pos.Y == t.sync.buf.TopScrollableRegion():
 		t.scrollDown(1)
-	} else {
-		t.moveUp(1)
+	case pos.Y > 0:
+		pos.Y--
+		t.setCursorAtScreen(pos, false)
 	}
+	t.shouldWrap = false
 }
 
 // Set a parserHandler attribute.
@@ -1720,16 +1716,23 @@ func (t *parserHandler) wrapLine() {
 		t.sync.primBuf.MarkWrapAtCursor()
 	}
 
+	t.carriageReturn()
+	t.index()
+}
+
+// index moves the cursor down a line. Only a cursor on the bottom
+// margin scrolls the region; below it the cursor stops at the last
+// line (kitty screen_index, screen.c:2404).
+func (t *parserHandler) index() {
 	buf := t.sync.buf
 	pos := buf.CursorAtScreen()
-	pos.X = 0
-	if pos.Y+1 >= buf.BottomScrollableRegion() {
+	switch {
+	case pos.Y == buf.BottomScrollableRegion()-1:
 		t.scrollUp(1)
-	} else {
+	case pos.Y < t.height-1:
 		pos.Y++
+		t.setCursorAtScreen(pos, false)
 	}
-
-	t.setCursorAtScreen(pos, false)
 	t.shouldWrap = false
 }
 

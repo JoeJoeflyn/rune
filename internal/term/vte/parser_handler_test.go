@@ -1360,3 +1360,119 @@ func TestPrimaryScrollingRegion(t *testing.T) {
 		assert.Equal(t, 5, p.sync.primBuf.BottomScrollableRegion())
 	})
 }
+
+// TestIndexOutsideScrollingRegion covers a cursor outside a DECSTBM
+// region: only a cursor on a margin scrolls the region. Elsewhere a
+// linefeed moves down and stops at the last line, and a reverse index
+// moves up and stops at the first (kitty screen_index and
+// screen_reverse_index, screen.c:2404, :2435).
+func TestIndexOutsideScrollingRegion(t *testing.T) {
+	const screen = "aaaa\nbbbb\ncccc\ndddd\neeee"
+	tests := []struct {
+		name string
+		// top and bottom are the DECSTBM parameters.
+		top, bottom int
+		cursor      term.Coordinates
+		input       func(p *parserHandler)
+		want        string
+		wantCursor  term.Coordinates
+	}{
+		{
+			name: "linefeed below the bottom margin moves down",
+			top:  2, bottom: 3,
+			cursor:     term.Coordinates{Y: 3},
+			input:      (*parserHandler).Linefeed,
+			want:       screen,
+			wantCursor: term.Coordinates{Y: 4},
+		},
+		{
+			name: "linefeed on the last line below the region stays",
+			top:  2, bottom: 4,
+			cursor:     term.Coordinates{Y: 4},
+			input:      (*parserHandler).Linefeed,
+			want:       screen,
+			wantCursor: term.Coordinates{Y: 4},
+		},
+		{
+			name: "linefeed above the region moves into it",
+			top:  3, bottom: 4,
+			cursor:     term.Coordinates{Y: 1},
+			input:      (*parserHandler).Linefeed,
+			want:       screen,
+			wantCursor: term.Coordinates{Y: 2},
+		},
+		{
+			name: "linefeed on the bottom margin scrolls the region",
+			top:  2, bottom: 4,
+			cursor:     term.Coordinates{X: 1, Y: 3},
+			input:      (*parserHandler).Linefeed,
+			want:       "aaaa\ncccc\ndddd\n    \neeee",
+			wantCursor: term.Coordinates{X: 1, Y: 3},
+		},
+		{
+			name: "autowrap on the last line below the region stays",
+			top:  2, bottom: 4,
+			cursor: term.Coordinates{X: 3, Y: 4},
+			input: func(p *parserHandler) {
+				p.Input('x')
+				p.Input('y')
+			},
+			want:       "aaaa\nbbbb\ncccc\ndddd\nyeex",
+			wantCursor: term.Coordinates{X: 1, Y: 4},
+		},
+		{
+			name: "linefeed ends a pending wrap",
+			top:  1, bottom: 5,
+			cursor: term.Coordinates{Y: 1},
+			input: func(p *parserHandler) {
+				writeToBuffer(p, "wxyz")
+				p.Linefeed()
+				p.Input('Q')
+			},
+			want:       "aaaa\nwxyz\ncccQ\ndddd\neeee",
+			wantCursor: term.Coordinates{X: 3, Y: 2},
+		},
+		{
+			name: "reverse index above the top margin moves up",
+			top:  3, bottom: 5,
+			cursor:     term.Coordinates{Y: 1},
+			input:      (*parserHandler).ReverseIndex,
+			want:       screen,
+			wantCursor: term.Coordinates{Y: 0},
+		},
+		{
+			name: "reverse index on the first line above the region stays",
+			top:  2, bottom: 5,
+			cursor:     term.Coordinates{Y: 0},
+			input:      (*parserHandler).ReverseIndex,
+			want:       screen,
+			wantCursor: term.Coordinates{Y: 0},
+		},
+		{
+			name: "reverse index on the top margin scrolls the region",
+			top:  2, bottom: 4,
+			cursor:     term.Coordinates{Y: 1},
+			input:      (*parserHandler).ReverseIndex,
+			want:       "aaaa\n    \nbbbb\ncccc\neeee",
+			wantCursor: term.Coordinates{Y: 1},
+		},
+	}
+	for _, tt := range tests {
+		for _, alt := range []bool{false, true} {
+			name := tt.name + "/primary"
+			if alt {
+				name = tt.name + "/alt"
+			}
+			t.Run(name, func(t *testing.T) {
+				p := newInputParserHandler(t, alt)
+				p.Resize(4, 5)
+				writeToBuffer(p, screen)
+				p.SetScrollingRegion(tt.top, tt.bottom, false)
+				p.setCursorAtScreen(tt.cursor, false)
+				tt.input(p)
+				assertEqualBuf(t, p, tt.want)
+				assert.Equal(t, tt.wantCursor, p.sync.buf.CursorAtScreen())
+			})
+		}
+	}
+}
