@@ -1003,6 +1003,96 @@ func TestComponentWidenWhileScrolledUpKeepsContentVisible(t *testing.T) {
 	assert.True(t, comp.ScrollDown(1), "must be able to scroll back down after widening")
 }
 
+// TestComponentReverseScreen pins DECSCNM (CSI ? 5 h): like kitty and
+// xterm, the whole screen is drawn in reverse video, including the cells
+// no program has written, and cells already in SGR 7 flip back to normal
+// video. vttest's "light background" pages rely on it.
+func TestComponentReverseScreen(t *testing.T) {
+	t.Parallel()
+
+	// reverseMap renders each cell as 'r' (reverse video) or 'n' (normal
+	// video).
+	reverseMap := func(w *term.StringWriter, width int) string {
+		var sb strings.Builder
+		for i, c := range w.Cells() {
+			if i != 0 && i%width == 0 {
+				sb.WriteByte('\n')
+			}
+			if c.Attrs&term.AttrReverse != 0 {
+				sb.WriteByte('r')
+			} else {
+				sb.WriteByte('n')
+			}
+		}
+		return sb.String()
+	}
+
+	cases := []struct {
+		desc   string
+		input  string
+		want   string
+		report string
+	}{
+		{
+			desc:   "normal video",
+			input:  "ab\x1b[7mc\x1b[m",
+			want:   "nnrn\nnnnn",
+			report: "\x1b[?5;2$y",
+		},
+		{
+			desc:   "reverse video fills the screen and cancels SGR 7",
+			input:  "ab\x1b[7mc\x1b[m\x1b[?5h",
+			want:   "rrnr\nrrrr",
+			report: "\x1b[?5;1$y",
+		},
+		{
+			desc:   "reverse video applies to the alternate screen",
+			input:  "\x1b[?1049h\x1b[?5hab",
+			want:   "rrrr\nrrrr",
+			report: "\x1b[?5;1$y",
+		},
+		{
+			desc:   "reset restores normal video",
+			input:  "ab\x1b[7mc\x1b[m\x1b[?5h\x1b[?5l",
+			want:   "nnrn\nnnnn",
+			report: "\x1b[?5;2$y",
+		},
+		{
+			desc:   "RIS restores normal video",
+			input:  "\x1b[?5h\x1bcab",
+			want:   "nnnn\nnnnn",
+			report: "\x1b[?5;2$y",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+
+			const width, height = 4, 2
+			comp, err := NewComponent(&testExecutor{}, &testExecutor{},
+				&mockTabManager{}, DefaultConfig())
+			require.NoError(t, err)
+			comp.SetDefaultAttributes(term.Attributes{
+				Fg: term.ColorWhite, Bg: term.ColorBlack})
+			require.NoError(t, comp.Resize(width, height))
+			comp.parser.AdvanceBytes([]byte(tc.input))
+
+			writer := term.NewStringWriter(width, height)
+			comp.Draw(writer)
+			assert.Equal(t, tc.want, reverseMap(writer, width))
+
+			pty := comp.pty.Master.(*workspacetest.File)
+			pty.Writes = nil
+			comp.parser.AdvanceBytes([]byte("\x1b[?5$p"))
+			var report strings.Builder
+			for _, w := range pty.Writes {
+				report.Write(w)
+			}
+			assert.Equal(t, tc.report, report.String(), "DECRQM")
+		})
+	}
+}
+
 // newPopulatedComponentForBench builds a component with a fully written
 // grid so Snapshot/SnapshotInto copy a realistic amount of cells.
 func newPopulatedComponentForBench(b *testing.B, width, height int) *Component {

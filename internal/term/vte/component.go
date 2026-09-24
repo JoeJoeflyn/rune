@@ -518,18 +518,34 @@ func (t *Component) Draw(w term.Writer) {
 // drawLocked paints the active buffer and selection to w. The caller
 // must hold t.mu.
 func (t *Component) drawLocked(w term.Writer) {
+	screen := w
+	if t.parserHandler.modeReverseScreen {
+		screen = reverseScreenWriter{w}
+	}
 	scrolledBy := 0
 	if t.parserHandler.useAlt {
-		t.parserHandler.sync.altBuf.Draw(w)
+		t.parserHandler.sync.altBuf.Draw(screen)
 	} else if t.scroll.Offset().Y == 0 {
-		t.parserHandler.sync.primBuf.Draw(w)
+		t.parserHandler.sync.primBuf.Draw(screen)
 	} else {
-		t.scroll.Draw(w)
+		t.scroll.Draw(screen)
 		scrolledBy = t.scroll.Offset().Y
 	}
-	t.drawGraphicsLocked(w, scrolledBy)
+	t.drawGraphicsLocked(screen, scrolledBy)
 
 	t.drawSelection(w)
+}
+
+// reverseScreenWriter draws DECSCNM by toggling rather than setting
+// reverse video, so a cell already in SGR 7 shows in normal video as in
+// kitty and xterm.
+type reverseScreenWriter struct {
+	term.Writer
+}
+
+func (w reverseScreenWriter) SetCell(pos term.Coordinates, c term.Cell) {
+	c.Attrs ^= term.AttrReverse
+	w.Writer.SetCell(pos, c)
 }
 
 // drawGraphicsLocked overlays the kitty graphics placements and keeps
