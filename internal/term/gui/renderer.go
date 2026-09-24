@@ -222,13 +222,81 @@ func (r *renderer) Draw(
 		r.repaintRows(cells)
 	}
 	screen.DrawImage(r.frame, &frameToScreenOptions)
-	r.images.draw(screen, images, r.fontManager, offsetX, offsetY)
+	r.drawImages(screen, cells, images, offsetX, offsetY)
 	// The cursor goes onto the screen rather than the frame so it stays
 	// above the image layer without being retained across frames.
 	if drawCursor {
 		r.renderCursor(screen, cells, cursorPos, cursorStyle)
 	}
 	r.snapshot(cells, cursor)
+}
+
+// drawImages composites the image placements over the cell frame, one
+// layer at a time (spec §8.5 of the kitty graphics protocol). The frame
+// already carries backgrounds and glyphs, so a placement that belongs
+// below them is painted over it and the cell geometry that must stay on
+// top is repainted, clipped to the pixels the placement covered.
+func (r *renderer) drawImages(
+	screen *ebiten.Image, cells [][]term.Cell, images []term.Image,
+	offsetX, offsetY float64,
+) {
+	if len(images) == 0 && len(r.images.textures) == 0 {
+		return
+	}
+	belowBg := r.drawImageLayer(screen, images, term.ImageLayerBelowBackground, offsetX, offsetY)
+	r.repaintOver(screen, cells, belowBg, passRects)
+	belowText := r.drawImageLayer(screen, images, term.ImageLayerBelowText, offsetX, offsetY)
+	r.repaintOver(screen, cells, append(belowBg, belowText...), passGlyphs, passGlyphsBackground)
+	r.drawImageLayer(screen, images, term.ImageLayerAboveText, offsetX, offsetY)
+	r.images.evictUnused()
+}
+
+// drawImageLayer paints the placements belonging to one layer and
+// returns the pixel rectangles they covered.
+func (r *renderer) drawImageLayer(
+	screen *ebiten.Image, images []term.Image, layer term.ImageLayer,
+	offsetX, offsetY float64,
+) []image.Rectangle {
+	var rects []image.Rectangle
+	for _, img := range images {
+		if img.Layer != layer {
+			continue
+		}
+		if rect := r.images.drawOne(screen, img, r.fontManager, offsetX, offsetY); !rect.Empty() {
+			rects = append(rects, rect)
+		}
+	}
+	return rects
+}
+
+// repaintOver redraws the given passes of the rows each rect covers,
+// clipped to that rect so the rest of the frame is not composited twice.
+func (r *renderer) repaintOver(
+	screen *ebiten.Image, cells [][]term.Cell,
+	rects []image.Rectangle, passes ...renderPass,
+) {
+	for _, rect := range rects {
+		clipped := rect.Intersect(screen.Bounds())
+		if clipped.Empty() {
+			continue
+		}
+		dst := screen.SubImage(clipped).(*ebiten.Image)
+		first, last := r.rowsCovering(clipped, len(cells))
+		for _, pass := range passes {
+			for viewY := last; viewY >= first; viewY-- {
+				r.renderRow(dst, cells, viewY, pass)
+			}
+			r.endPass(dst, pass)
+		}
+	}
+}
+
+// rowsCovering returns the rows that can paint into rect, widened by one
+// row because vertical-offset cells paint outside their own strip.
+func (r *renderer) rowsCovering(rect image.Rectangle, height int) (first, last int) {
+	first = max(0, r.fontManager.CellY(float64(rect.Min.Y))-1)
+	last = min(height-1, r.fontManager.CellY(float64(rect.Max.Y-1))+1)
+	return first, last
 }
 
 // computeDirtyRows marks r.dirtyRows for the rows that must be

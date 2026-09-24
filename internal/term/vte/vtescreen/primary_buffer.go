@@ -83,6 +83,58 @@ func (b *PrimaryBuffer) MarkWrapAtCursor() {
 	c.Bytes = cell.WrapMarker
 }
 
+// LogicalRow is a position within the buffer's logical lines, as
+// returned by PrimaryBuffer.LogicalRow.
+type LogicalRow struct {
+	Line, Offset int
+}
+
+// LogicalRow locates absolute row y within the logical lines of this
+// buffer: the index of the logical line containing it and y's offset
+// within that line. A logical line is a maximal run of rows joined by
+// wrap markers, and a resize only changes how many rows each one
+// occupies, so the pair survives the reflow. Rows above the buffer
+// keep their distance as a negative offset from line 0.
+func (b *PrimaryBuffer) LogicalRow(y int) (line, offset int) {
+	if y < 0 {
+		return 0, y
+	}
+	rows := b.Cells.RawCells()
+	head := 0
+	for i := range min(y, len(rows)) {
+		if !isWrapped(rows[i]) {
+			line++
+			head = i + 1
+		}
+	}
+	return line, y - head
+}
+
+// RowForLogical is the inverse of LogicalRow, clamped to the rows the
+// logical line occupies now.
+func (b *PrimaryBuffer) RowForLogical(line, offset int) int {
+	rows := b.Cells.RawCells()
+	head := 0
+	for seen := 0; seen < line && head < len(rows); head++ {
+		if !isWrapped(rows[head]) {
+			seen++
+		}
+	}
+	if offset <= 0 {
+		return head + offset
+	}
+	last := head
+	for last < len(rows)-1 && isWrapped(rows[last]) {
+		last++
+	}
+	return min(head+offset, last)
+}
+
+// isWrapped reports whether a row is continued on the next one.
+func isWrapped(row []term.Cell) bool {
+	return len(row) > 0 && row[len(row)-1].Bytes == cell.WrapMarker
+}
+
 // Resize resizes this Buffer and resets the vertical margins.
 func (b *PrimaryBuffer) Resize(width, height int) {
 	cursor := b.CursorAtScroll()
@@ -376,9 +428,11 @@ func (b *PrimaryBuffer) Reset() {
 	b.SetCursorAtScreen(term.Coordinates{})
 }
 
-// Clear clears the screen and moves the current view into history, effectively
-// leaving the content as blank and the cursor position at the top.
-func (b *PrimaryBuffer) Clear() bool {
+// Clear clears the screen and moves the current view into history,
+// effectively leaving the content as blank and the cursor position at
+// the top. It returns the number of rows the content moved up, 0 when
+// the view was already blank.
+func (b *PrimaryBuffer) Clear() int {
 	// find the last row that's not a blank row; cursor cannot
 	// be used because some shell implementations move the cursor
 	// before sending the clear sequence. Cases:
@@ -400,15 +454,15 @@ func (b *PrimaryBuffer) Clear() bool {
 			endWindowCoordinates, _ := b.scroll.ScrollToWindowCoordinates(term.Coordinates{Y: y})
 			count := endWindowCoordinates.Y + 1
 			if count <= 0 {
-				return false
+				return 0
 			}
 			b.InsertLines(count, term.Coordinates{Y: y, X: b.Columns(y)})
 			b.cursor.position = term.Coordinates{}
 			b.log(log.TraceLevel, "clear view, insert lines count %d, found non-blank at y:%d", count, y)
-			return true
+			return count
 		}
 	}
-	return false
+	return 0
 }
 
 // ClearHistory clears the scrollback history, leaving the current view as-is.

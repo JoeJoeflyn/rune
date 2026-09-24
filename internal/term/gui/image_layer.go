@@ -49,21 +49,6 @@ type imageLayer struct {
 	scratch *image.RGBA
 }
 
-// draw composites images onto dst, in placement order. offX and offY
-// are the renderer's pixel offsets, matching the cell frame's.
-func (l *imageLayer) draw(
-	dst *ebiten.Image, images []term.Image,
-	m *font.Manager, offX, offY float64,
-) {
-	if len(images) == 0 && len(l.textures) == 0 {
-		return
-	}
-	for _, img := range images {
-		l.drawOne(dst, img, m, offX, offY)
-	}
-	l.evictUnused()
-}
-
 // placement is the pixel geometry of one image placement: src selects
 // the texels in the picture's texture, area is where the whole picture
 // would land, and clip narrows the painting to the cells the placement
@@ -91,6 +76,7 @@ func resolvePlacement(
 	if img.Fit == term.ImageFitContain {
 		area = containRect(src, area)
 	}
+	area = area.Add(img.Offset)
 	if area.Empty() {
 		return placement{}, false
 	}
@@ -102,17 +88,19 @@ func resolvePlacement(
 	return placement{src: src, area: area, clip: clip}, true
 }
 
+// drawOne paints one placement and reports the pixel rectangle it
+// covered, which is empty when the placement painted nothing.
 func (l *imageLayer) drawOne(
 	dst *ebiten.Image, img term.Image,
 	m *font.Manager, offX, offY float64,
-) {
+) image.Rectangle {
 	p, ok := resolvePlacement(img, m, offX, offY, dst.Bounds())
 	if !ok {
-		return
+		return image.Rectangle{}
 	}
 	tex := l.texture(img)
 	if tex == nil {
-		return
+		return image.Rectangle{}
 	}
 
 	var op ebiten.DrawImageOptions
@@ -128,6 +116,7 @@ func (l *imageLayer) drawOne(
 		target = dst.SubImage(p.clip).(*ebiten.Image)
 	}
 	target.DrawImage(tex.SubImage(p.src).(*ebiten.Image), &op)
+	return p.clip
 }
 
 // texture returns the uploaded pixels for img, uploading them when the

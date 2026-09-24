@@ -197,20 +197,31 @@ func TestImageLayerEvictsUnplacedPictures(t *testing.T) {
 	}
 
 	benchdraw.BeginFrame(t)
-	l.draw(dst, []term.Image{a, b}, m, 0, 0)
+	drawFrame(&l, dst, m, a, b)
 	benchdraw.EndFrame(t)
 	require.Len(t, l.textures, 2)
 
 	benchdraw.BeginFrame(t)
-	l.draw(dst, []term.Image{a}, m, 0, 0)
+	drawFrame(&l, dst, m, a)
 	benchdraw.EndFrame(t)
 	assert.Len(t, l.textures, 1)
 	assert.Contains(t, l.textures, a.ID)
 
 	benchdraw.BeginFrame(t)
-	l.draw(dst, nil, m, 0, 0)
+	drawFrame(&l, dst, m)
 	benchdraw.EndFrame(t)
 	assert.Empty(t, l.textures, "an empty frame releases every texture")
+}
+
+// drawFrame paints one frame's worth of placements and runs the layer's
+// end-of-frame eviction, as the renderer does across its layers.
+func drawFrame(
+	l *imageLayer, dst *ebiten.Image, m *font.Manager, images ...term.Image,
+) {
+	for _, img := range images {
+		l.drawOne(dst, img, m, 0, 0)
+	}
+	l.evictUnused()
 }
 
 // TestImageLayerDrawSkipsInvisiblePlacements asserts placements that
@@ -262,7 +273,7 @@ func TestImageLayerDrawSkipsInvisiblePlacements(t *testing.T) {
 			var l imageLayer
 			defer l.deallocate()
 			benchdraw.BeginFrame(t)
-			l.draw(dst, []term.Image{tt.img}, m, 0, 0)
+			drawFrame(&l, dst, m, tt.img)
 			benchdraw.EndFrame(t)
 			assert.Empty(t, l.textures, "nothing must be uploaded")
 		})
@@ -320,6 +331,17 @@ func TestResolvePlacement(t *testing.T) {
 			wantSrc:  image.Rect(0, 0, 8, 4),
 			wantArea: cellRect(2, 1, 5, 3, 30, 20),
 			wantClip: cellRect(2, 1, 5, 3, 30, 20),
+		},
+		{
+			name: "the pixel offset shifts the raster inside its cells",
+			img: term.Image{
+				Src: src, Pos: term.Coordinates{X: 1, Y: 1},
+				Offset: image.Pt(3, 5), Width: 4, Height: 3,
+			},
+			wantSrc:  image.Rect(0, 0, 8, 4),
+			wantArea: cellRect(1, 1, 5, 4, 0, 0).Add(image.Pt(3, 5)),
+			wantClip: cellRect(1, 1, 5, 4, 0, 0).Add(image.Pt(3, 5)).
+				Intersect(cellRect(1, 1, 5, 4, 0, 0)),
 		},
 	}
 	for _, tt := range tests {
@@ -392,4 +414,58 @@ func TestImageLayerDeallocateReleasesTextures(t *testing.T) {
 	l.deallocate()
 	assert.Empty(t, l.textures)
 	assert.Nil(t, l.scratch)
+}
+
+// TestDrawImageLayerPartitions asserts each layer paints only its own
+// placements and reports the pixels they covered, which is what the
+// renderer repaints the cell geometry over.
+func TestDrawImageLayerPartitions(t *testing.T) {
+	r, _, _ := newTestRenderer(t, 16, 10)
+	screen := ebiten.NewImage(r.frame.Bounds().Dx(), r.frame.Bounds().Dy())
+	t.Cleanup(screen.Deallocate)
+
+	src := solidRGBA(4, 4, color.RGBA{G: 255, A: 255})
+	image := func(layer term.ImageLayer, x int) term.Image {
+		return term.Image{
+			Src: src, ID: term.NewImageID(),
+			Pos: term.Coordinates{X: x}, Width: 2, Height: 2, Layer: layer,
+		}
+	}
+	below := image(term.ImageLayerBelowText, 0)
+	above := image(term.ImageLayerAboveText, 4)
+	images := []term.Image{above, below}
+
+	benchdraw.BeginFrame(t)
+	defer benchdraw.EndFrame(t)
+
+	rects := r.drawImageLayer(screen, images, term.ImageLayerBelowText, 0, 0)
+	require.Len(t, rects, 1, "only the below-text placement is painted")
+	assert.Equal(t, cellRectToPixels(below.Bounds(), r.fontManager, 0, 0), rects[0])
+
+	rects = r.drawImageLayer(screen, images, term.ImageLayerAboveText, 0, 0)
+	require.Len(t, rects, 1)
+	assert.Equal(t, cellRectToPixels(above.Bounds(), r.fontManager, 0, 0), rects[0])
+
+	assert.Empty(t, r.drawImageLayer(screen, images, term.ImageLayerBelowBackground, 0, 0))
+	assert.Len(t, r.images.textures, 2, "each placement uploaded its own picture")
+}
+
+// TestRowsCovering asserts the rows repainted over a placement include
+// the neighbours of the rows it covers, because vertical-offset cells
+// paint outside their own strip.
+func TestRowsCovering(t *testing.T) {
+	r, _, rows := newTestRenderer(t, 16, 10)
+	m := r.fontManager
+
+	first, last := r.rowsCovering(cellRectToPixels(image.Rect(0, 3, 2, 5), m, 0, 0), rows)
+	assert.Equal(t, 2, first, "the row above can paint into the placement")
+	assert.Equal(t, 5, last, "and so can the row below")
+
+	first, last = r.rowsCovering(cellRectToPixels(image.Rect(0, 0, 2, 1), m, 0, 0), rows)
+	assert.Equal(t, 0, first, "clamped to the first row")
+	assert.Equal(t, 1, last)
+
+	first, last = r.rowsCovering(cellRectToPixels(image.Rect(0, rows-1, 2, rows), m, 0, 0), rows)
+	assert.Equal(t, rows-2, first)
+	assert.Equal(t, rows-1, last, "clamped to the last row")
 }

@@ -699,10 +699,12 @@ func (n *recordingNotifications) Messages() []string {
 }
 
 func newHandleTestHandler(master workspaceapi.File) *Handler {
+	ph := &parserHandler{keyboard: new(keyboardState)}
 	handler := &Handler{
 		comp: &Component{
 			pty:           workspaceapi.Pty{Master: master},
-			parserHandler: &parserHandler{},
+			parserHandler: ph,
+			keyboard:      ph.keyboard,
 		},
 		ctx:           context.Background(),
 		notifications: nopNotifications{},

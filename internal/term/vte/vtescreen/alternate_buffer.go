@@ -433,6 +433,15 @@ func (b *AltBuffer) CellAt(pos term.Coordinates) *term.Cell {
 	return &b.Cells.MutableRow(pos.Y, pos.X+1)[pos.X]
 }
 
+// RowCells returns the cells of content row y, aliasing the buffer's
+// storage, or nil when the row does not exist.
+func (b *AltBuffer) RowCells(y int) []term.Cell {
+	if y < 0 || y >= b.Cells.Rows() {
+		return nil
+	}
+	return b.Cells.Row(y)
+}
+
 // PrevCellAtCursor returns the cell immediately left of the cursor, or nil
 // at the start of a line, so a grapheme continuation can be merged into
 // the cell that holds the base of its cluster.

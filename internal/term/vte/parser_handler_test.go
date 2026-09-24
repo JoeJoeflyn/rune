@@ -798,7 +798,7 @@ func TestIntegrationParserHandler(t *testing.T) {
 			attrs := DefaultConfig().NeedsAttentionAttributes
 			pty := workspaceapi.Pty{Master: &mockPtyFile, Slave: &mockPtyFile}
 			ph := newParserHandler(new(sync.Mutex), pty, &tm,
-				clipboard.NewInMemory(), tm.bell, testURI, attrs, false, 10000, 0)
+				clipboard.NewInMemory(), tm.bell, testURI, attrs, false, 10000, 0, nil, nil, "")
 			ph.sync.primBuf.SetDefaultChar(' ')
 			ph.sync.altBuf.SetDefaultChar(' ')
 
@@ -916,7 +916,7 @@ func newInputParserHandlerPty(t *testing.T, alt bool) (*parserHandler, *workspac
 	attrs := DefaultConfig().NeedsAttentionAttributes
 	pty := workspaceapi.Pty{Master: mockPtyFile, Slave: mockPtyFile}
 	ph := newParserHandler(new(sync.Mutex), pty, &tm,
-		clipboard.NewInMemory(), tm.bell, testURI, attrs, false, 10000, 0)
+		clipboard.NewInMemory(), tm.bell, testURI, attrs, false, 10000, 0, nil, nil, "")
 	ph.sync.primBuf.SetDefaultChar(' ')
 	ph.sync.altBuf.SetDefaultChar(' ')
 	if alt {
@@ -976,7 +976,7 @@ func TestBellReleasesLockBeforeInvokingCallback(t *testing.T) {
 	attrs := DefaultConfig().NeedsAttentionAttributes
 	pty := workspaceapi.Pty{Master: &mockPtyFile, Slave: &mockPtyFile}
 	ph := newParserHandler(new(sync.Mutex), pty, &tm,
-		clipboard.NewInMemory(), bellFn, testURI, attrs, false, 10000, 0)
+		clipboard.NewInMemory(), bellFn, testURI, attrs, false, 10000, 0, nil, nil, "")
 
 	go ph.Bell()
 	<-bellEntered

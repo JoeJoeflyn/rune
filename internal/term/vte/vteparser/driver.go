@@ -125,6 +125,14 @@ func (p *driver) Unhook() {
 	p.log(log.DebugLevel, "unhandled unhook")
 }
 
+func (p *driver) APCDispatch(data []byte) {
+	if len(data) > 0 && data[0] == 'G' {
+		p.handler.GraphicsCommand(data[1:])
+		return
+	}
+	p.log(log.DebugLevel, "unhandled apc len=%d", len(data))
+}
+
 func (p *driver) OSCDispatch(params [][]byte, bellTerminated bool) {
 	terminator := "\x1b\\"
 	if bellTerminated {
@@ -466,6 +474,8 @@ func (p *driver) CSIDispatch(
 		switch param {
 		case 14:
 			handler.TextAreaSizePixels()
+		case 16:
+			handler.CellSizePixels()
 		case 18:
 			handler.TextAreaSizeChars()
 		case 22:

@@ -89,9 +89,12 @@ type Component struct {
 	parserHandler     *parserHandler
 	waitParserHandler *waitParserHandler
 	parser            vteparser.Parser
-	complete          bool
-	selectionAttr     term.Attributes
-	defAttr           term.Attributes
+	// keyboard is the parser handler's, held here for the input path
+	// because ResetState rewrites the parser handler's fields.
+	keyboard      *keyboardState
+	complete      bool
+	selectionAttr term.Attributes
+	defAttr       term.Attributes
 
 	// version increments after each batch of pty output the parser
 	// applies, so it changes whenever the rendered grid may have. It
@@ -99,6 +102,11 @@ type Component struct {
 	// cells; it is not a lock — Snapshot/Draw still take mu. It starts
 	// at 1 so the zero value reads as "never observed".
 	version atomic.Uint64
+
+	// publisher is the redraw channel Run was given; animations use it
+	// to request the frame after the next gap.
+	publisher browser.EventPublisher
+	animTimer *time.Timer
 }
 
 // NOTE: this is an integrator implementation, it shouldn't really do much other
@@ -143,7 +151,9 @@ func (t *Component) Init(
 
 	t.parserHandler = newParserHandler(
 		&t.mu, t.pty, tm, t.clipboard, cfg.scheduleBell, t.uri,
-		cfg.NeedsAttentionAttributes, cfg.DynamicTabName, cfg.MaxLines, cfg.MinWidth)
+		cfg.NeedsAttentionAttributes, cfg.DynamicTabName, cfg.MaxLines, cfg.MinWidth,
+		cfg.CellPixelSize, cfg.FileSystem, cfg.TempDir)
+	t.keyboard = t.parserHandler.keyboard
 
 	// start with pty slave file name as title
 	var h vteparser.Handler = t.parserHandler
@@ -183,6 +193,9 @@ func (t *Component) triggerBell() {
 // Run must be called in a separate goroutine to start processing incoming
 // data from the pty master.
 func (t *Component) Run(publisher browser.EventPublisher) error {
+	t.mu.Lock()
+	t.publisher = publisher
+	t.mu.Unlock()
 	err := t.run(publisher)
 	if t.pid.Load() != 0 {
 		_ = t.cfg.ScheduleNextTick(func() { t.tm.OnTabExit(t.uri) })
@@ -516,15 +529,41 @@ func (t *Component) Draw(w term.Writer) {
 // drawLocked paints the active buffer and selection to w. The caller
 // must hold t.mu.
 func (t *Component) drawLocked(w term.Writer) {
+	scrolledBy := 0
 	if t.parserHandler.useAlt {
 		t.parserHandler.sync.altBuf.Draw(w)
 	} else if t.scroll.Offset().Y == 0 {
 		t.parserHandler.sync.primBuf.Draw(w)
 	} else {
 		t.scroll.Draw(w)
+		scrolledBy = t.scroll.Offset().Y
 	}
+	t.drawGraphicsLocked(w, scrolledBy)
 
 	t.drawSelection(w)
+}
+
+// drawGraphicsLocked overlays the kitty graphics placements and keeps
+// animations ticking by scheduling a redraw for the next frame.
+func (t *Component) drawGraphicsLocked(w term.Writer, scrolledBy int) {
+	next, running := t.parserHandler.drawGraphics(w, scrolledBy, time.Now())
+	if !running || t.publisher == nil || t.closed.Load() {
+		return
+	}
+	publisher := t.publisher
+	redraw := func() {
+		debug.CapturePanicReport(func() {
+			if t.closed.Load() {
+				return
+			}
+			_ = publisher.PublishEvent(term.Event{Type: term.EventInterrupt})
+		})
+	}
+	if t.animTimer == nil {
+		t.animTimer = time.AfterFunc(next, redraw)
+		return
+	}
+	t.animTimer.Reset(next)
 }
 
 // IsComplete returnes whether this terminal has stopped processing
@@ -836,6 +875,9 @@ func (t *Component) Close() (ret error) {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.animTimer != nil {
+		t.animTimer.Stop()
+	}
 	if err := t.closeSlave(); err != nil {
 		ret = multierr.Append(ret, err)
 	}

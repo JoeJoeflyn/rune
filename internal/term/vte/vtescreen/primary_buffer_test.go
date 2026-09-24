@@ -247,7 +247,7 @@ func TestPrimaryClear(t *testing.T) {
 			resetPrimaryBuffer(b, test.content)
 
 			initialCursor := b.CursorAtScreen()
-			cleared := b.Clear()
+			cleared := b.Clear() > 0
 			writer := term.NewStringWriter(test.width, test.height)
 			b.Draw(writer)
 			writer.Flush()

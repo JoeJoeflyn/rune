@@ -504,6 +504,14 @@ func (e *ex) doInit(
 	e.publishEvent = publishEvent
 	e.storage = storage
 	e.workspaceURI = uri
+	// A t=f, t=t or t=s graphics transmission names a file on the
+	// machine the terminal's command runs on, which is this workspace.
+	emulatorConfig.FileSystem = m
+	if uri.Scheme() == workspace.FileScheme {
+		// The command inherits this process's environment, TMPDIR
+		// included; a remote machine's is unknown.
+		emulatorConfig.TempDir = os.TempDir()
+	}
 	e.emulatorConfig = emulatorConfig
 
 	e.config = text.DefaultConfig()

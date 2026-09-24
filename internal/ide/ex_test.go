@@ -3613,6 +3613,29 @@ func TestExResizeDoesNotBlockOnPtyResize(t *testing.T) {
 	})
 }
 
+// remoteURILoader is a testLoader whose workspace lives on another
+// machine.
+type remoteURILoader struct {
+	*testLoader
+}
+
+func (remoteURILoader) URI(string) (workspaceapi.URI, error) {
+	return workspaceapi.ParseURI("ssh://host/remote")
+}
+
+// TestExGraphicsTempDir pins that only a local workspace lends the
+// terminal this process's temp dir, where a t=t graphics transmission
+// may be deleted: a remote machine's TMPDIR is unknown.
+func TestExGraphicsTempDir(t *testing.T) {
+	local := newExForTestingVTECapacity(t, &testLoader{}, 0)
+	defer local.Close()
+	assert.Equal(t, os.TempDir(), local.emulatorConfig.TempDir)
+
+	remote := newExForTestingVTECapacity(t, remoteURILoader{&testLoader{}}, 0)
+	defer remote.Close()
+	assert.Empty(t, remote.emulatorConfig.TempDir)
+}
+
 func newExForTestingWithWorkspace(
 	t *testing.T, workspace workspace.Workspace,
 	ed text.Editor,
