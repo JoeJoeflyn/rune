@@ -96,6 +96,10 @@ type Config struct {
 	TabNameSeparator string
 	FrameUnion       bool
 	OnTabsClick      func(int) bool
+	// OnTabIconClick, when set, receives clicks on a tab's icon in the
+	// tab bar in place of the usual tab click, so the tab is neither
+	// focused nor shown. A press dragged off the icon is not a click.
+	OnTabIconClick func(*Tab)
 
 	// ActiveTabShader names the continuous effect run over the labels of
 	// tabs marked active via Component.SetTabActivity. Empty disables

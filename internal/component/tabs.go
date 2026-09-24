@@ -620,6 +620,41 @@ func (t *Tabs) TabActionAt(pos term.Coordinates) (int, bool) {
 	return -1, false
 }
 
+// TabIconAt returns the tab whose icon is drawn at pos. It reports false
+// anywhere else in the tab, including the row above or below the icon,
+// for tabs without an icon or shrunk too narrow to draw it, and before
+// the first Draw, since only drawn icons can be pointed at.
+func (t *Tabs) TabIconAt(pos term.Coordinates) (int, bool) {
+	if len(t.layout.cells) == 0 || pos.Y != t.labelRow() {
+		return -1, false
+	}
+	idx, ok := t.TabAt(pos)
+	if !ok || idx < 0 || idx >= len(t.tabs) {
+		return -1, false
+	}
+	tab := t.tabs[idx]
+	if tab.icon == 0 {
+		return -1, false
+	}
+	start, width, ok := t.tabBounds(idx)
+	if !ok {
+		return -1, false
+	}
+	// Mirrors insertTabCell: the action glyph's block is reserved first,
+	// and a cell with no room for the icon is drawn blank.
+	if actionW := tabActionWidth(tab); actionW <= width {
+		width -= actionW
+	}
+	iconW := runeCellWidth(tab.icon)
+	if width < iconW {
+		return -1, false
+	}
+	if pos.X >= start && pos.X < start+iconW {
+		return idx, true
+	}
+	return -1, false
+}
+
 // tabBounds returns the first column and width of the tab at idx in the
 // same coordinate space TabAt accepts.
 func (t *Tabs) tabBounds(idx int) (start, width int, ok bool) {
@@ -694,15 +729,16 @@ func (t *Tabs) TabRect(idx int) (offset term.Coordinates, width int, ok bool) {
 }
 
 // labelRow is the row Draw puts the labels on. They sit in a span that
-// is vertically centred within the rows the frame and the focus
-// highlight leave free, and a span under three rows is not padded.
+// is vertically centred within the rows the frame leaves free, and a
+// span under three rows is not padded. A highlight on top of a
+// borderless bar moves that span down a row without shrinking it.
 func (t *Tabs) labelRow() int {
 	top, rows := 0, t.height
 	switch {
 	case t.border:
 		top, rows = 1, t.height-2
 	case t.height >= 2 && !t.bottomHighlight:
-		top, rows = 1, t.height-1
+		top = 1
 	}
 	if rows >= 3 {
 		return top + (rows-1)/2

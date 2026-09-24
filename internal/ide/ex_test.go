@@ -2904,6 +2904,172 @@ func TestExTabcloseDirtyTabNoKeepsTabOpen(t *testing.T) {
 	assert.Equal(t, 0, b.comp.Browser().FloatingWindows())
 }
 
+// TestExTabIconClick clicks and drags on the icons of the rendered tab
+// bar: A one shows in the only window and B two is not shown anywhere.
+func TestExTabIconClick(t *testing.T) {
+	const width, height = 30, 8
+	// The frame puts the icons on row 1: A at column 1, B at column 8.
+	iconA := term.Coordinates{X: 1, Y: 1}
+	iconB := term.Coordinates{X: 8, Y: 1}
+	window := term.Coordinates{X: 8, Y: 5}
+	type step struct {
+		key term.Key
+		pos term.Coordinates
+	}
+	click := func(pos term.Coordinates) []step {
+		return []step{{term.MouseLeft, pos}, {term.MouseRelease, pos}}
+	}
+	const untouched = `┌━━━━━───────────────────────┐
+│A one  B two                │
+├────────────────────────────┤
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+└────────────────────────────┘`
+	for _, tc := range []struct {
+		name  string
+		steps []step
+		want  string
+	}{
+		{
+			name:  "closes a tab no window shows",
+			steps: click(iconB),
+			want: `┌━━━━━───────────────────────┐
+│A one                       │
+├────────────────────────────┤
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+│1111111111111111111111111111│
+└────────────────────────────┘`,
+		},
+		{
+			name:  "closes the shown tab and shows the next",
+			steps: click(iconA),
+			want: `┌━━━━━───────────────────────┐
+│B two                       │
+├────────────────────────────┤
+│2222222222222222222222222222│
+│2222222222222222222222222222│
+│2222222222222222222222222222│
+│2222222222222222222222222222│
+└────────────────────────────┘`,
+		},
+		{
+			name:  "closes tab after tab",
+			steps: append(click(iconA), click(iconA)...),
+			want: `┌────────────────────────────┐
+│                            │
+├────────────────────────────┤
+│                            │
+│                            │
+│                            │
+│                            │
+└────────────────────────────┘`,
+		},
+		{
+			name: "drag from the icon into the window",
+			steps: []step{
+				{term.MouseLeft, iconB}, {term.MouseLeft, window},
+				{term.MouseRelease, window},
+			},
+			want: untouched,
+		},
+		{
+			name: "drag from the window onto the icon",
+			steps: []step{
+				{term.MouseLeft, window}, {term.MouseLeft, iconB},
+				{term.MouseRelease, iconB},
+			},
+			want: untouched,
+		},
+		{
+			name: "drag between the icons",
+			steps: []step{
+				{term.MouseLeft, iconB}, {term.MouseLeft, iconA},
+				{term.MouseRelease, iconA},
+			},
+			want: untouched,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newExForTesting(t, texttest.NopEditor(),
+				text.WithCommandKey(testCommandKey),
+				text.WithCommandOverlayConfig(testCommandOverlayConfig()),
+			)
+			defer b.Close()
+			var tabs []*browser.Tab
+			for i, name := range []string{"one", "two"} {
+				uri, err := workspaceapi.ParseURI("file:///" + name)
+				require.NoError(t, err)
+				h := browsertest.NewTestHandler()
+				h.Ch = '1' + rune(i)
+				// Keep the content still so the screen only shows tab changes.
+				h.HandleOverride = func(term.Event) (bool, bool) { return false, true }
+				tab, err := b.comp.Tab(uri, 'A'+rune(i), name, h)
+				require.NoError(t, err)
+				tabs = append(tabs, tab.(*browser.Tab))
+			}
+			focus, err := b.comp.Focus()
+			require.NoError(t, err)
+			require.NoError(t, focus.SetContent(tabs[0]))
+			b.Resize(width, height)
+			require.Equal(t, untouched, handlertest.DrawHandler(b, width, height))
+
+			for _, s := range tc.steps {
+				b.Handle(term.Event{
+					Type: term.EventMouse, Key: s.key, MouseX: s.pos.X, MouseY: s.pos.Y,
+				})
+				handlertest.DrawHandler(b, width, height)
+			}
+			assert.Equal(t, tc.want, handlertest.DrawHandler(b, width, height))
+		})
+	}
+}
+
+func TestExTabIconClickPromptsForDirtyTab(t *testing.T) {
+	for _, tc := range []struct {
+		answer   rune
+		wantTabs int
+	}{
+		{answer: 'y', wantTabs: 0},
+		{answer: 'n', wantTabs: 1},
+	} {
+		t.Run(string(tc.answer), func(t *testing.T) {
+			b := newExForTesting(t, texttest.NopEditor(),
+				text.WithCommandKey(testCommandKey),
+				text.WithCommandOverlayConfig(testCommandOverlayConfig()),
+			)
+			defer b.Close()
+			b.Resize(30, 8)
+
+			uri, err := workspaceapi.ParseURI("file:///dirty.go")
+			require.NoError(t, err)
+			_, err = b.editFileURI(uri, b.invokeWindow(), false)
+			require.NoError(t, err)
+			editBuffer(t, b.ex, uri, "ABC")
+			handlertest.DrawHandler(b, 30, 8)
+
+			// The only tab's icon sits right past the frame.
+			icon := term.Coordinates{X: 1, Y: 1}
+			b.Handle(term.Event{Type: term.EventMouse, Key: term.MouseLeft, MouseX: icon.X, MouseY: icon.Y})
+			b.Handle(term.Event{Type: term.EventMouse, Key: term.MouseRelease, MouseX: icon.X, MouseY: icon.Y})
+
+			assert.Len(t, b.comp.Tabs(), 1)
+			assert.Equal(t, 1, b.comp.Browser().FloatingWindows())
+
+			exit, handled := b.Handle(term.Event{Type: term.EventKey, Ch: tc.answer})
+			assert.False(t, exit)
+			assert.True(t, handled)
+			assert.Len(t, b.comp.Tabs(), tc.wantTabs)
+			assert.Equal(t, 0, b.comp.Browser().FloatingWindows())
+			dirty, ok := b.comp.IsDirty(uri)
+			assert.Equal(t, tc.wantTabs == 1, ok && dirty)
+		})
+	}
+}
+
 func TestExTabcloseallPromptsForDirtyTabs(t *testing.T) {
 	b := newExForTesting(t, texttest.NopEditor(),
 		text.WithCommandKey(testCommandKey),

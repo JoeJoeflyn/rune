@@ -328,6 +328,7 @@ func (e *ex) init(
 	e.config.CommandFallbacks["searchfile"] = e
 	e.config.CommandFallbacks["searchtext"] = e
 	e.config.CommandFallbacks["searchast"] = e
+	e.config.OnTabIconClick = e.closeTabFromIcon
 	err = e.comp.Init(ed, m, e.config)
 	if err != nil {
 		return
@@ -773,6 +774,24 @@ func (e *ex) tabclose(_ context.Context, args ...string) error {
 	// on focus dispatch to vte.Handler via Close
 	b.RemoveWindowContent(win)
 	return nil
+}
+
+// closeTabFromIcon closes tab like tabclose closes the one in focus,
+// asking first when it has changes pending to be written.
+func (e *ex) closeTabFromIcon(tab *browser.Tab) {
+	b := e.comp.Browser()
+	if e.tabIsDirty(tab) {
+		e.openCloseDirtyTabsPrompt(
+			fmt.Sprintf("File '%s' has changes pending to be written. "+
+				"Close and discard changes?", tab.URI().Name()),
+			func() error {
+				b.RemoveTab(tab)
+				return nil
+			},
+		)
+		return
+	}
+	b.RemoveTab(tab)
 }
 
 func (e *ex) tabcloseall(_ context.Context, args ...string) error {

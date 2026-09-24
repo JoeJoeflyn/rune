@@ -161,6 +161,11 @@ func (c *Component) Init(config Config) {
 		}
 		return true
 	}
+	if config.OnTabIconClick != nil {
+		c.tabs.OnIconClick = func(id int) {
+			config.OnTabIconClick(c.buffers[id])
+		}
+	}
 
 	c.wm.Init(c.wallpaper(), c.config.WindowManagerConfig)
 	c.focusWindow = c.wm.Focus()
@@ -219,9 +224,11 @@ func (c *Component) initUnion() {
 		vtabs := newOffsetTabs(c.shadedTabs, c.config.TabBarOffset)
 		c.tabs.SetBorder(false)
 		c.union.UnionTopFrame(vtabs, c.tabsSize(), false)
+		c.union.CaptureDrags(vtabs)
 	} else {
 		c.tabs.SetBorder(c.config.Frame)
 		c.union.UnionTop(c.shadedTabs, c.tabsSize())
+		c.union.CaptureDrags(c.shadedTabs)
 	}
 	// The union sizes top members before left/right ones, so an empty
 	// right member starts below the tab bar and narrows only the window
