@@ -1024,6 +1024,7 @@ func (t *parserHandler) TerminalAttribute(pattr vteparser.Attr) {
 		attr.Fg = 0
 		attr.Bg = 0
 		attr.Attrs = 0
+		attr.Underline = 0
 	case vteparser.BoldAttr:
 		attr.Attrs |= term.AttrBold
 	case vteparser.DimAttr:
@@ -1063,9 +1064,10 @@ func (t *parserHandler) TerminalAttribute(pattr vteparser.Attr) {
 		attr.Fg = pattr.Color
 	case vteparser.BackgroundAttr:
 		attr.Bg = pattr.Color
+	case vteparser.UnderlineColorAttr:
+		attr.Underline = pattr.Color
 	case vteparser.DoubleUnderlineAttr, vteparser.UndercurlAttr,
-		vteparser.DottedUnderlineAttr, vteparser.DashedUnderlineAttr,
-		vteparser.UnderlineColorAttr:
+		vteparser.DottedUnderlineAttr, vteparser.DashedUnderlineAttr:
 		/* ignored */
 		return
 	}

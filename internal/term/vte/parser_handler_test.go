@@ -1005,6 +1005,30 @@ func firstRowCells(p *parserHandler) []term.Cell {
 	return p.sync.buf.(*vtescreen.AltBuffer).Cells.RawCells()[0]
 }
 
+func TestUnderlineColorAttribute(t *testing.T) {
+	p := newInputParserHandler(t, false)
+	p.Resize(8, 2)
+	p.TerminalAttribute(vteparser.Attr{
+		Type: vteparser.UnderlineColorAttr, Color: term.NewRGBColor(10, 20, 30),
+	})
+	p.Input('a')
+	p.TerminalAttribute(vteparser.Attr{
+		Type: vteparser.UnderlineColorAttr, Color: term.ColorDefault,
+	})
+	p.Input('b')
+	p.TerminalAttribute(vteparser.Attr{
+		Type: vteparser.UnderlineColorAttr, Color: term.NewRGBColor(10, 20, 30),
+	})
+	p.TerminalAttribute(vteparser.Attr{Type: vteparser.ResetAttr})
+	p.Input('c')
+
+	cells := firstRowCells(p)
+	require.GreaterOrEqual(t, len(cells), 3)
+	assert.Equal(t, term.NewRGBColor(10, 20, 30), cells[0].UnderlineColor())
+	assert.Equal(t, term.ColorDefault, cells[1].UnderlineColor(), "SGR 59 resets it")
+	assert.Equal(t, term.ColorDefault, cells[2].UnderlineColor(), "SGR 0 resets it")
+}
+
 // TestInputWideRuneSurvivesNextInput reproduces a wide (width-2) glyph
 // being clobbered when the following glyph was printed: the cursor
 // advanced by one column, landing on the wide glyph's second half, so the

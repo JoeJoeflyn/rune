@@ -704,7 +704,7 @@ func (p *driver) attrsFromSgrParameters(params [][]uint16) []Attr {
 		case 49:
 			attrs = append(attrs, Attr{Type: BackgroundAttr, Color: term.ColorDefault})
 		case 59:
-			attrs = append(attrs, Attr{Type: UnderlineColorAttr, Color: term.ColorBlack})
+			attrs = append(attrs, Attr{Type: UnderlineColorAttr, Color: term.ColorDefault})
 		case 90:
 			attrs = append(attrs, Attr{Type: ForegroundAttr, Color: term.ColorGray})
 		case 91:

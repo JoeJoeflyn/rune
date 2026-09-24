@@ -534,9 +534,13 @@ func (r *renderer) renderRow(
 
 		if pass == passRects && cell.Attrs&term.AttrUnderline != 0 {
 			underlinePixelY := pixelY + r.font.CellSize.Y - 1
+			stroke := fg
+			if u := cell.UnderlineColor(); u.Valid() {
+				stroke = tcellToColor(u, fg, r.fgOpacity)
+			}
 			r.rectBatch.AddStroke(float32(pixelX), float32(underlinePixelY),
 				float32(pixelX+r.font.CellSize.X),
-				float32(underlinePixelY), 2, fg)
+				float32(underlinePixelY), 2, stroke)
 		}
 
 		if r.enableLigatures && skipRunes == 0 {
