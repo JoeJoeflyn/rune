@@ -3808,6 +3808,22 @@ func (f *workspaceTabManager) OnTabExit(uri workspaceapi.URI) bool {
 	return f.tm != nil && f.tm.OnTabExit(uri)
 }
 
+// SetTabActivity satisfies browser.TabManager. Callers may be off the
+// event loop, so the mark is applied on the next tick.
+func (f *workspaceTabManager) SetTabActivity(
+	uri workspaceapi.URI, active bool,
+) error {
+	if f.tm == nil {
+		return errors.New("tab manager is not initialized")
+	}
+	f.parent.scheduleNextTick(func() {
+		if err := f.tm.SetTabActivity(uri, active); err != nil {
+			log.Debugf("SetTabActivity on workspace tab manager %p: %v", f, err)
+		}
+	})
+	return nil
+}
+
 func lspCommandsConfig(
 	uri workspaceapi.URI, cfg ideConfig, notifications browserapi.Notifications,
 	interrupter term.Interrupter, parser syntaxapi.Parser,

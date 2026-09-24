@@ -309,6 +309,8 @@ func (n nopBrowser) OnTabExit(workspaceapi.URI) bool {
 	return false
 }
 
+func (n nopBrowser) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 func (n nopBrowser) UpdateNotificationProgress(
 	id, message string, progress, total int64,
 ) error {

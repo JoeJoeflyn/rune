@@ -31,6 +31,8 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/term"
 	"github.com/unstablebuild/rune-go-sdk/term/termrpc"
 	gomock "go.uber.org/mock/gomock"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	"unstable.build/rune/internal/browser/browsertest"
 	"unstable.build/rune/internal/debug"
 )
@@ -118,6 +120,57 @@ func TestServerOpen(t *testing.T) {
 		_, err := s.Open(ctx, &req)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "oopsie")
+	})
+}
+
+func TestServerSetTabActivity(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("delegates to underlying Browser under the lock", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		mu := new(sync.Mutex)
+		s, mock := newTestServer(ctrl, mu)
+		uri, err := workspaceapi.ParseURI("rune-agent://model/rolling-fox")
+		require.NoError(t, err)
+
+		mock.EXPECT().SetTabActivity(gomock.Eq(uri), true).
+			DoAndReturn(func(workspaceapi.URI, bool) error {
+				assert.False(t, mu.TryLock(), "must be called under the UI lock")
+				return nil
+			})
+
+		res, err := s.SetTabActivity(ctx, &browserrpc.SetTabActivityRequest{
+			ResourceId: uri.String(), Active: true,
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, res)
+	})
+
+	t.Run("bubbles up Browser error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		s, mock := newTestServer(ctrl, new(sync.Mutex))
+
+		mock.EXPECT().SetTabActivity(gomock.Any(), false).
+			Return(errors.New("unknown tab"))
+
+		_, err := s.SetTabActivity(ctx, &browserrpc.SetTabActivityRequest{
+			ResourceId: "file:///a",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown tab")
+	})
+
+	t.Run("rejects a malformed resource id", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		s, _ := newTestServer(ctrl, new(sync.Mutex))
+
+		_, err := s.SetTabActivity(ctx, &browserrpc.SetTabActivityRequest{
+			ResourceId: "%zz", Active: true,
+		})
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 }
 

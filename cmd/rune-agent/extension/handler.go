@@ -1299,8 +1299,12 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 		interrupter:   h.p,
 	})
 
+	uri, err := getModelUri(d.ID, model)
+	if err != nil {
+		return err
+	}
 	comp = dialoguetui.NewComponent(h.cfg)
-	syncComp := syncComponent{mu: mu, comp: comp, h: h}
+	syncComp := syncComponent{mu: mu, comp: comp, h: h, uri: uri}
 
 	// Replay dialogue history.
 	pendingTools := make(map[string]llmapi.ToolCall)
@@ -1435,10 +1439,6 @@ func (h *aiEditorHandler) handleChat(cmd textapi.Command) error {
 		})
 		return nil
 	})
-	uri, err := getModelUri(d.ID, model)
-	if err != nil {
-		return err
-	}
 	tab, err := openChatTab(h.wm, uri, d.ID, bhandler)
 	if err != nil {
 		return err

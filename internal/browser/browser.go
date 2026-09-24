@@ -158,6 +158,10 @@ type TabManager interface {
 	// used by terminals whose child process exited. It must be called
 	// on the host event loop.
 	OnTabExit(uri workspaceapi.URI) bool
+
+	// SetTabActivity marks the tab identified by uri as having work in
+	// progress or as idle. See browserapi.WindowManager.SetTabActivity.
+	SetTabActivity(uri workspaceapi.URI, active bool) error
 }
 
 // Notifications is the interface that wraps methods to display

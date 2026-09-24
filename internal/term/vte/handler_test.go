@@ -307,6 +307,8 @@ func (r *tabExiterRecorder) OnTabExit(uri workspaceapi.URI) bool {
 	return true
 }
 
+func (r *tabExiterRecorder) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 func (r *tabExiterRecorder) ExitedURIs() []workspaceapi.URI {
 	r.mu.Lock()
 	defer r.mu.Unlock()

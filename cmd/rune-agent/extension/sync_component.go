@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/unstablebuild/rune-go-sdk/api/llmapi"
+	"github.com/unstablebuild/rune-go-sdk/api/workspaceapi"
 	"unstable.build/rune/cmd/rune-agent/dialogue/dialoguetui"
 )
 
@@ -45,6 +46,9 @@ type syncComponent struct {
 	mu   *sync.Mutex
 	comp *dialoguetui.Component
 	h    *aiEditorHandler
+	// uri identifies the chat's tab, whose activity follows the turn.
+	// It is zero for chats that are not tabs, such as queries.
+	uri workspaceapi.URI
 }
 
 // completionOpen reports whether the chat's '#' completion band is
@@ -86,6 +90,7 @@ func (s syncComponent) beginTurn(start time.Time) {
 		st.TurnStart = start
 		st.Usage = llmapi.DialogueUsage{}
 	})
+	s.setTabActivity(true)
 }
 
 // endTurn returns the bar to idle, keeping whatever the turn reported
@@ -96,6 +101,22 @@ func (s syncComponent) endTurn() {
 		st.Phase = ""
 		st.ActiveForm = ""
 	})
+	s.setTabActivity(false)
+}
+
+// setTabActivity marks the chat's tab as having a turn in flight, so the
+// host can show it while the tab or its workspace is not focused. It is
+// best-effort: a failure loses the indicator, never the turn. It must be
+// called without mu held, because the host serves it under the UI lock
+// it also holds while drawing this chat.
+func (s syncComponent) setTabActivity(active bool) {
+	if s.uri == (workspaceapi.URI{}) {
+		return
+	}
+	if err := s.h.wm.SetTabActivity(s.uri, active); err != nil {
+		slog.Debug("set chat tab activity",
+			"uri", s.uri.String(), "active", active, "error", err)
+	}
 }
 
 // seedContextTokens fills the context gauge from a reopened

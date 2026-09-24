@@ -891,6 +891,8 @@ func (tm *mockTabManager) OnTabExit(workspaceapi.URI) bool {
 	return false
 }
 
+func (tm *mockTabManager) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 func (tm *mockTabManager) bell() {
 	tm.belled = true
 }

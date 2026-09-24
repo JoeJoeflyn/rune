@@ -3058,6 +3058,8 @@ func (m *exSearchWindowManager) CloseWindow(win browserapi.Window) error {
 	return win.(browser.Window).Close()
 }
 
+func (m *exSearchWindowManager) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 func (t testEx) Handle(ev term.Event) (bool, bool) {
 	unlock := t.lock()
 	quit, handle := t.ex.Handle(ev)

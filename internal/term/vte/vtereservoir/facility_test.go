@@ -657,6 +657,8 @@ func (nopBrowser) OnTabExit(workspaceapi.URI) bool {
 	return false
 }
 
+func (nopBrowser) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 func newTestFacility(
 	initCap int, newFn func(*Facility) (VTE, error),
 ) *Facility {

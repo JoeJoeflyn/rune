@@ -130,6 +130,8 @@ func (stubTabManager) OnTabExit(workspaceapi.URI) bool {
 	return false
 }
 
+func (stubTabManager) SetTabActivity(workspaceapi.URI, bool) error { return nil }
+
 // stubReloader satisfies exoeditor.Reloader for tests that only need a
 // non-nil value to satisfy exoeditor.New's invariants.
 type stubReloader struct{}
