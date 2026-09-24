@@ -251,6 +251,129 @@ func TestListDraw(t *testing.T) {
 |aft|`},
 			},
 		},
+		{
+			name:  "an ordered marker is followed by a blank",
+			src:   "1. one\n2. two\n\nafter",
+			width: 12, height: 5,
+			steps: []listStep{{want: `
+|1. one      |
+|2. two      |
+|            |
+|after       |
+|            |`}},
+		},
+		{
+			name:  "markers reaching ten pad the shorter ones",
+			src:   "9. nine\n10. ten\n\nafter",
+			width: 12, height: 5,
+			steps: []listStep{{want: `
+|9.  nine    |
+|10. ten     |
+|            |
+|after       |
+|            |`}},
+		},
+		{
+			name:  "a list starting past ten sizes the column from its last marker",
+			src:   "99. a\n100. b",
+			width: 12, height: 3,
+			steps: []listStep{{want: `
+|99.  a      |
+|100. b      |
+|            |`}},
+		},
+		{
+			name:  "a list may start at zero",
+			src:   "0. zero\n1. one",
+			width: 12, height: 3,
+			steps: []listStep{{want: `
+|0. zero     |
+|1. one      |
+|            |`}},
+		},
+		{
+			name:  "wrapped text hangs under the item column",
+			src:   "8. a long item that wraps\n9. b\n10. c\n\nafter",
+			width: 14, height: 8,
+			steps: []listStep{{want: `
+|8.  a long    |
+|    item that |
+|    wraps     |
+|9.  b         |
+|10. c         |
+|              |
+|after         |
+|              |`}},
+		},
+		{
+			name:  "a nested list starts at its parent's item column",
+			src:   "9. a\n10. b\n    - sub\n\nafter",
+			width: 12, height: 6,
+			steps: []listStep{{want: `
+|9.  a       |
+|10. b       |
+|    • sub   |
+|            |
+|after       |
+|            |`}},
+		},
+		{
+			name:  "a loose ordered item's sub-list starts below a blank row",
+			src:   "1. one\n\n   - sub\n\n2. two\n\nafter",
+			width: 12, height: 8,
+			steps: []listStep{{want: `
+|1. one      |
+|            |
+|   • sub    |
+|            |
+|2. two      |
+|            |
+|after       |
+|            |`}},
+		},
+		{
+			name:  "wide text after a padded marker",
+			src:   "9. 中\n10. 中文字\n\nafter",
+			width: 9, height: 6,
+			steps: []listStep{{want: `
+|9.  中    |
+|10. 中 文  |
+|    字    |
+|         |
+|after    |
+|         |`}},
+		},
+		{
+			name:  "checkboxes replace the numbers of an ordered task list",
+			src:   "1. [ ] todo\n2. [x] done",
+			width: 12, height: 3,
+			steps: []listStep{{want: `
+|☐ todo      |
+|☑ done      |
+|            |`}},
+		},
+		{
+			name:  "a checkbox lines up with the numbers around it",
+			src:   "9. [ ] todo\n10. done",
+			width: 12, height: 3,
+			steps: []listStep{{want: `
+|☐   todo    |
+|10. done    |
+|            |`}},
+		},
+		{
+			name:  "a marker wider than the viewport hides the list until it fits",
+			src:   "1000. a",
+			width: 6, height: 2,
+			steps: []listStep{
+				{want: `
+|      |
+|      |`},
+				{do: resizeList(7, 2), want: `
+|1000. a|
+|       |`},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -286,6 +409,13 @@ func TestListDimensions(t *testing.T) {
 		{name: "loose sub-list in a tight list",
 			src: "- one\n  - a\n\n  - b\n- two", width: 5, height: 6},
 		{name: "wide text", src: "- 中文", width: 6, height: 2},
+		{name: "markers reaching ten", src: "9. nine\n10. ten", width: 8, height: 3},
+		{name: "unwrapped long item",
+			src: "8. a long item that wraps\n9. b\n10. c", width: 26, height: 4},
+		{name: "ordered task list", src: "1. [ ] todo\n2. [x] done",
+			width: 6, height: 3},
+		{name: "checkbox among numbers", src: "9. [ ] todo\n10. done",
+			width: 8, height: 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -330,6 +460,15 @@ func TestListCopyAndLinks(t *testing.T) {
 		{name: "loose sub-list", src: "- one\n\n  - [sub](u)\n\n- two", width: 12,
 			copied: "• one\n\n• sub\n\n• two\n",
 			links:  []probe{{x: 4, y: 1}, {x: 4, y: 2, url: "u"}, {x: 4, y: 3}}},
+		{name: "padded markers", src: "9. nine\n10. [ten](u)", width: 12,
+			copied: "9.  nine\n10. ten\n",
+			links:  []probe{{x: 3, y: 1}, {x: 4, y: 1, url: "u"}}},
+		{name: "ordered task list", src: "1. [ ] todo", width: 12,
+			copied: "☐ todo\n"},
+		{name: "sub-list under a padded marker", src: "9. a\n10. b\n    - [sub](u)",
+			width:  12,
+			copied: "9.  a\n10. b\n• sub\n",
+			links:  []probe{{x: 5, y: 2}, {x: 6, y: 2, url: "u"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

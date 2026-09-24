@@ -17,14 +17,13 @@
 package markdown
 
 import (
-	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/unstablebuild/rune-go-sdk/term"
 
 	"unstable.build/rune/internal/component"
 )
-
-const listIndent = 2
 
 type listItem struct {
 	content textRun
@@ -97,12 +96,13 @@ func (l *listBlock) CharAt(x, y int) (rune, bool) {
 }
 
 func (l *listBlock) heightAtIndent(width, indent int) int {
-	if width <= indent+listIndent {
+	itemIndent := l.itemIndent()
+	if width <= indent+itemIndent {
 		return 0
 	}
 
 	h := 0
-	effectiveWidth := width - indent - listIndent
+	effectiveWidth := width - indent - itemIndent
 
 	for i, item := range l.items {
 		lines := countWrappedLines(item.content, effectiveWidth)
@@ -110,7 +110,7 @@ func (l *listBlock) heightAtIndent(width, indent int) int {
 
 		if item.nested != nil {
 			h += l.nestedGap()
-			h += item.nested.heightAtIndent(width, indent+listIndent)
+			h += item.nested.heightAtIndent(width, indent+itemIndent)
 		}
 		h += l.gapAfter(i)
 	}
@@ -123,20 +123,20 @@ func (l *listBlock) heightAtIndent(width, indent int) int {
 }
 
 func (l *listBlock) drawAtIndent(w term.Writer, y, indent int) int {
-	if l.w <= indent+listIndent {
+	itemIndent := l.itemIndent()
+	if l.w <= indent+itemIndent {
 		return 0
 	}
 
 	startY := y
-	effectiveWidth := l.w - indent - listIndent
+	effectiveWidth := l.w - indent - itemIndent
 
 	for i, item := range l.items {
-		bullet := l.getBullet(i, item)
-		component.WriteText(w, indent, y, l.w, bullet, l.cfg.Paragraph)
+		component.WriteText(w, indent, y, l.w, l.marker(i, item), l.cfg.Paragraph)
 
 		lines := wrapTextRun(item.content, effectiveWidth)
 		for lineIdx, line := range lines {
-			x := indent + listIndent
+			x := indent + itemIndent
 			for _, sp := range line {
 				attr := resolveStyle(sp.style, l.cfg)
 				x = component.WriteText(w, x, y+lineIdx, l.w, sp.text, attr)
@@ -149,7 +149,7 @@ func (l *listBlock) drawAtIndent(w term.Writer, y, indent int) int {
 
 		if item.nested != nil {
 			y += l.nestedGap()
-			y += item.nested.drawAtIndent(w, y, indent+listIndent)
+			y += item.nested.drawAtIndent(w, y, indent+itemIndent)
 		}
 		y += l.gapAfter(i)
 	}
@@ -166,8 +166,9 @@ func (l *listBlock) dimensionsAtIndent(indent int) (width, height int) {
 	maxWidth := 0
 	totalHeight := 0
 
+	itemIndent := l.itemIndent()
 	for i, item := range l.items {
-		itemWidth := indent + listIndent + item.content.Width()
+		itemWidth := indent + itemIndent + item.content.Width()
 		if itemWidth > maxWidth {
 			maxWidth = itemWidth
 		}
@@ -175,7 +176,7 @@ func (l *listBlock) dimensionsAtIndent(indent int) (width, height int) {
 
 		if item.nested != nil {
 			totalHeight += l.nestedGap()
-			nestedW, nestedH := item.nested.dimensionsAtIndent(indent + listIndent)
+			nestedW, nestedH := item.nested.dimensionsAtIndent(indent + itemIndent)
 			if nestedW > maxWidth {
 				maxWidth = nestedW
 			}
@@ -209,27 +210,44 @@ func (l *listBlock) nestedGap() int {
 	return 0
 }
 
-func (l *listBlock) getBullet(index int, item listItem) string {
-	if item.isTask {
-		if item.checked {
-			return string(l.cfg.TaskListChecked) + " "
-		}
-		return string(l.cfg.TaskListUnchecked) + " "
+func (l *listBlock) marker(index int, item listItem) string {
+	switch {
+	case item.isTask && item.checked:
+		return string(l.cfg.TaskListChecked)
+	case item.isTask:
+		return string(l.cfg.TaskListUnchecked)
+	case l.ordered:
+		return strconv.Itoa(l.start+index) + "."
 	}
+	return string(l.cfg.ListBullet)
+}
 
-	if l.ordered {
-		return fmt.Sprintf("%d.", l.start+index)
+// itemIndent is the column every item's text starts at: one blank past
+// the widest marker the list draws. Markers differ in width within a
+// list, "9." against "10." or a checkbox against a number, and every
+// item's text has to line up.
+func (l *listBlock) itemIndent() int {
+	var indent int
+	for i, item := range l.items {
+		indent = max(indent, textWidth(l.marker(i, item))+1)
 	}
+	return indent
+}
 
-	return string(l.cfg.ListBullet) + " "
+// bullet is the item's marker padded with blanks up to the item column,
+// the cells drawn in front of the item's first row of text.
+func (l *listBlock) bullet(index int, item listItem, itemIndent int) string {
+	m := l.marker(index, item)
+	return m + strings.Repeat(" ", max(itemIndent-textWidth(m), 0))
 }
 
 func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
-	if l.w <= indent+listIndent {
+	itemIndent := l.itemIndent()
+	if l.w <= indent+itemIndent {
 		return
 	}
 
-	effectiveWidth := l.w - indent - listIndent
+	effectiveWidth := l.w - indent - itemIndent
 	currentY := 0
 
 	for i, item := range l.items {
@@ -242,7 +260,7 @@ func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
 		if y >= currentY && y < currentY+lineCount {
 			lineIdx := y - currentY
 			if lineIdx < len(lines) {
-				adjustedX := x - indent - listIndent
+				adjustedX := x - indent - itemIndent
 				if adjustedX >= 0 {
 					return spanAtInLine(lines[lineIdx], adjustedX)
 				}
@@ -252,10 +270,10 @@ func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
 		currentY += lineCount
 
 		if item.nested != nil {
-			nestedHeight := item.nested.heightAtIndent(l.w, indent+listIndent)
+			nestedHeight := item.nested.heightAtIndent(l.w, indent+itemIndent)
 			currentY += l.nestedGap()
 			if y >= currentY && y < currentY+nestedHeight {
-				return item.nested.spanAtIndent(x, y-currentY, indent+listIndent)
+				return item.nested.spanAtIndent(x, y-currentY, indent+itemIndent)
 			}
 			currentY += nestedHeight
 		}
@@ -265,11 +283,12 @@ func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
 }
 
 func (l *listBlock) charAtIndent(x, y, indent int) (rune, bool) {
-	if l.w <= indent+listIndent {
+	itemIndent := l.itemIndent()
+	if l.w <= indent+itemIndent {
 		return 0, false
 	}
 
-	effectiveWidth := l.w - indent - listIndent
+	effectiveWidth := l.w - indent - itemIndent
 	currentY := 0
 
 	for i, item := range l.items {
@@ -281,12 +300,12 @@ func (l *listBlock) charAtIndent(x, y, indent int) (rune, bool) {
 
 		if y >= currentY && y < currentY+lineCount {
 			lineIdx := y - currentY
-			if lineIdx == 0 && x >= indent && x < indent+listIndent {
-				bullet := textRun{{text: l.getBullet(i, item)}}
+			if lineIdx == 0 && x >= indent && x < indent+itemIndent {
+				bullet := textRun{{text: l.bullet(i, item, itemIndent)}}
 				return charAtInLine(bullet, x-indent)
 			}
 			if lineIdx < len(lines) {
-				adjustedX := x - indent - listIndent
+				adjustedX := x - indent - itemIndent
 				if adjustedX >= 0 {
 					return charAtInLine(lines[lineIdx], adjustedX)
 				}
@@ -296,10 +315,10 @@ func (l *listBlock) charAtIndent(x, y, indent int) (rune, bool) {
 		currentY += lineCount
 
 		if item.nested != nil {
-			nestedHeight := item.nested.heightAtIndent(l.w, indent+listIndent)
+			nestedHeight := item.nested.heightAtIndent(l.w, indent+itemIndent)
 			currentY += l.nestedGap()
 			if y >= currentY && y < currentY+nestedHeight {
-				return item.nested.charAtIndent(x, y-currentY, indent+listIndent)
+				return item.nested.charAtIndent(x, y-currentY, indent+itemIndent)
 			}
 			currentY += nestedHeight
 		}
