@@ -109,6 +109,11 @@ type Config struct {
 	// Search enables searching the scrollback of the primary buffer.
 	// A nil Search.Editor disables the feature.
 	Search SearchConfig
+
+	// CellPixelSize reports the size of a character cell in pixels,
+	// which the pty window size advertises to the command; leave it
+	// nil on a cells-only display so the pixel size stays zero.
+	CellPixelSize func() (width, height int)
 }
 
 // SearchConfig configures the terminal's scrollback search. The box is

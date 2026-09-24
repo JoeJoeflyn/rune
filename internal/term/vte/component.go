@@ -81,7 +81,11 @@ type Component struct {
 	// closes it on teardown paths where no spawn succeeded.
 	slaveClosed atomic.Bool
 
-	width, height     int
+	width, height int
+	// ptySize is the last size driven into the pty, so a font change
+	// that keeps the cell count re-issues the ioctl for the new pixel
+	// size without resizing the buffers.
+	ptySize           workspaceapi.PtySize
 	parserHandler     *parserHandler
 	waitParserHandler *waitParserHandler
 	parser            vteparser.Parser
@@ -224,21 +228,28 @@ func (t *Component) Resize(width, height int) error {
 	}
 
 	t.mu.Lock()
-	sameSize := t.width == width && t.height == height
+	size := t.ptySizeFor(width, height)
+	sameCells := t.width == width && t.height == height
+	samePixels := size == t.ptySize
 	t.mu.Unlock()
-	if sameSize {
+	if sameCells && samePixels {
 		// some programs will not re-print if width and height
 		// are the same, but resizing buffers does clear all the content
 		// so we would be left with an empty screen buffer.
 		return nil
 	}
 
-	err := t.terminal.SetPtySize(t.pty, workspaceapi.PtySize{Columns: width, Rows: height})
+	err := t.terminal.SetPtySize(t.pty, size)
 	if err != nil {
 		return err
 	}
 
 	t.mu.Lock()
+	t.ptySize = size
+	if sameCells {
+		t.mu.Unlock()
+		return nil
+	}
 	t.width = width
 	t.height = height
 	t.parserHandler.resizeLocked(width, height)
@@ -250,6 +261,17 @@ func (t *Component) Resize(width, height int) error {
 	t.mu.Unlock()
 
 	return nil
+}
+
+// ptySizeFor is the pty window size for a grid of the given cells,
+// with the pixel size a cells-only display leaves at zero.
+func (t *Component) ptySizeFor(width, height int) workspaceapi.PtySize {
+	size := workspaceapi.PtySize{Columns: width, Rows: height}
+	if t.cfg.CellPixelSize != nil {
+		cellW, cellH := t.cfg.CellPixelSize()
+		size.PixelWidth, size.PixelHeight = width*cellW, height*cellH
+	}
+	return size
 }
 
 // ModeBracketedPaste returns whether bracketed paste mode is set.

@@ -18,6 +18,7 @@ package gui
 
 import (
 	"context"
+	"image"
 	"sync"
 	"testing"
 	"time"
@@ -504,6 +505,25 @@ func TestCloseRestoresColorValues(t *testing.T) {
 	assert.Equal(t, original, tcell.GetColorValues())
 	assert.Nil(t, g.renderer)
 	require.NoError(t, g.Close(), "Close must be idempotent")
+}
+
+// TestCellPixelSizeMatchesImagePlacement pins that the cell size the
+// kitty graphics protocol advertises is the pitch image placements are
+// scaled by, so a client sizing an image to N cells gets exactly N
+// cells, and that it follows font changes.
+func TestCellPixelSizeMatchesImagePlacement(t *testing.T) {
+	gui, _ := newTestGUI(t, &mockHandler{})
+
+	w, h := gui.CellPixelSize()
+	require.Positive(t, w)
+	require.Positive(t, h)
+	cells := cellRectToPixels(image.Rect(0, 0, 3, 2), gui.fontManager, 0, 0)
+	assert.Equal(t, 3*w, cells.Dx())
+	assert.Equal(t, 2*h, cells.Dy())
+
+	require.NoError(t, gui.IncreaseFontSize())
+	w2, h2 := gui.CellPixelSize()
+	assert.Greater(t, w2*h2, w*h, "a larger font means larger cells")
 }
 
 // stubWindowClosing installs a processWindowClosed that reports one

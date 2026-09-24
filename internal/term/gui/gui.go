@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -111,6 +112,10 @@ type GUI struct {
 	lastPositionY int
 	iteration     int64
 	deviceScale   float64
+	// cellPixelSize is the cell pitch in device pixels, packed as
+	// width<<32|height and published on every resize for readers off
+	// the event loop.
+	cellPixelSize atomic.Uint64
 
 	links linkScanner
 
@@ -702,6 +707,8 @@ func (g *GUI) resize(width, height int, deviceScale float64) {
 
 	g.handler.Resize(cellsWidth, cellsHeight)
 	g.mouse.resize(cellsWidth, cellsHeight)
+	g.cellPixelSize.Store(uint64(math.Round(g.fontManager.PixelX(1)))<<32 |
+		uint64(math.Round(g.fontManager.PixelY(1))))
 	g.writer = newFrameWriter(g.ctx, cellsWidth, cellsHeight)
 	if g.renderer != nil {
 		g.renderer.deallocate()
@@ -711,6 +718,15 @@ func (g *GUI) resize(width, height int, deviceScale float64) {
 		g.cursorAttributes, g.defaultAttr)
 	g.renderer.forceFullRepaint = g.forceFullRepaint
 	g.needsDraw = true
+}
+
+// CellPixelSize reports the cell pitch in device pixels, which is what
+// image placements are scaled by and what the kitty graphics protocol
+// advertises to clients. It is zero before the first resize and safe
+// to call from any goroutine.
+func (g *GUI) CellPixelSize() (width, height int) {
+	packed := g.cellPixelSize.Load()
+	return int(packed >> 32), int(packed & 0xffffffff)
 }
 
 // CellRect returns the origin and size, in points relative to the

@@ -675,6 +675,7 @@ func (i *IDE) init(
 				op.defaultWallpaper, defaultCfg, op.bell, op.scheduleFn,
 				op.zdotDir)
 			cfg.storage = i.ideConfig.storage
+			cfg.cellPixelSize = op.cellPixelSize
 			return cfg, err
 		}, op.workspaceConfig, op.tabBarOffset,
 		op.rightInset, op.tabBarHeight, op.workspacesIcon, op.workspacesBarHeight,
@@ -793,6 +794,7 @@ func loadIDEConfig(cfgfilename string, op options) (ideConfig, error) {
 	err := loadConfig(&cfg, cfgfilename,
 		op.defaultWallpaper, newDefaultConfig(op), op.bell,
 		op.scheduleFn, op.zdotDir)
+	cfg.cellPixelSize = op.cellPixelSize
 	return cfg, err
 }
 

@@ -1059,7 +1059,8 @@ func BenchmarkSnapshotInto(b *testing.B) {
 // ptySize captures a single SetPtySize call so tests can assert the
 // component drives the pty winsize via the schemeapi.Terminal contract.
 type ptySize struct {
-	width, height int
+	width, height           int
+	pixelWidth, pixelHeight int
 }
 
 // expanderFunc adapts a plain function into the CommandExpander
@@ -1166,7 +1167,10 @@ func TestComponentInitAsyncExpanderErrorReachesWatcher(t *testing.T) {
 func (e *recordingExecutor) SetPtySize(p workspaceapi.Pty, size workspaceapi.PtySize) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.setPtySize = append(e.setPtySize, ptySize{width: size.Columns, height: size.Rows})
+	e.setPtySize = append(e.setPtySize, ptySize{
+		width: size.Columns, height: size.Rows,
+		pixelWidth: size.PixelWidth, pixelHeight: size.PixelHeight,
+	})
 	return nil
 }
 
@@ -1358,6 +1362,39 @@ func TestComponentRestoreFromSnapshotDrivesSetPtySize(t *testing.T) {
 	require.NoError(t, comp.Resize(w, h))
 	assert.Empty(t, exe.setPtySize,
 		"follow-up Resize at the same size is a legitimate no-op")
+}
+
+// TestComponentResizeDrivesPixelSize pins that the pty learns the pixel
+// size graphics clients read from TIOCGWINSZ, and that a font change
+// re-issues the ioctl for the new pixel size without resizing buffers.
+func TestComponentResizeDrivesPixelSize(t *testing.T) {
+	t.Parallel()
+
+	tm := mockTabManager{}
+	exe := &recordingExecutor{}
+	cfg := DefaultConfig()
+	cellW, cellH := 10, 20
+	cfg.CellPixelSize = func() (int, int) { return cellW, cellH }
+	comp, err := NewComponent(exe, exe, &tm, cfg)
+	require.NoError(t, err)
+
+	require.NoError(t, comp.Resize(80, 24))
+	require.Len(t, exe.setPtySize, 1)
+	assert.Equal(t, ptySize{width: 80, height: 24, pixelWidth: 800, pixelHeight: 480},
+		exe.setPtySize[0])
+
+	exe.setPtySize = nil
+	require.NoError(t, comp.Resize(80, 24))
+	assert.Empty(t, exe.setPtySize, "same cells and pixels is a no-op")
+
+	cellW, cellH = 12, 24
+	writeToBuffer(comp.parserHandler, "keep")
+	require.NoError(t, comp.Resize(80, 24))
+	require.Len(t, exe.setPtySize, 1, "a font change re-issues the ioctl")
+	assert.Equal(t, ptySize{width: 80, height: 24, pixelWidth: 960, pixelHeight: 576},
+		exe.setPtySize[0])
+	assert.Equal(t, "keep", term.CellsToString([][]term.Cell{firstRowCells(comp.parserHandler)[:4]}),
+		"the buffers are not resized when only the pixel size changed")
 }
 
 // TestComponentRestoreFromSnapshotCursorWithScrollback reproduces a bug

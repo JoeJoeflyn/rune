@@ -263,6 +263,7 @@ type ideConfig struct {
 	errors           map[string]error
 	ringBell         func()
 	scheduleNextTick func(func()) bool
+	cellPixelSize    func() (int, int)
 	zdotDir          string
 	// storage is the IDE-wide storage service. It's owned by the IDE
 	// and shared across workspaces; commandAliases consults it to
@@ -4228,6 +4229,7 @@ func (c ideConfig) terminalConfig() vte.Config {
 	ret.Clipboard = c.clipboard()
 	ret.ScheduleNextTick = c.scheduleNextTick
 	ret.RingBell = c.ringBell
+	ret.CellPixelSize = c.cellPixelSize
 	ret.MinWidth = defaultMinWidth
 	ret.Search = c.terminalSearchConfig()
 	return ret

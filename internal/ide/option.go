@@ -272,6 +272,16 @@ func WithScheduleNextTick(scheduleFn func(func()) bool) Option {
 	}
 }
 
+// WithCellPixelSize sets how terminals learn the cell size in pixels,
+// which enables the kitty graphics protocol. Without it, or while it
+// reports zero, terminals behave as a cells-only display and clients
+// fall back to text.
+func WithCellPixelSize(cellPixelSize func() (width, height int)) Option {
+	return func(opts *options) {
+		opts.cellPixelSize = cellPixelSize
+	}
+}
+
 // WithZdotDir sets the starting zsh directory configuration file via env ZDOTDIR
 // when zsh is used as the default shell, or is passed via config (terminal.shell)
 // as "zsh", rather than with the proper flags (-i, --login, etc.).
@@ -503,6 +513,7 @@ type options struct {
 	defaultConfig        string
 	bell                 func()
 	scheduleFn           func(func()) bool
+	cellPixelSize        func() (int, int)
 	afterFunc            func(time.Duration, func()) *time.Timer
 	debugCommands        bool
 	streamingOpen        bool
