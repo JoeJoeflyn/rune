@@ -106,6 +106,7 @@ func (b *PrimaryBuffer) Resize(width, height int) {
 	b.wraps = wraps
 	b.width = width
 	b.height = height
+	b.SetScrollableRegion(0, 0, true)
 	b.scroll.Resize(origWidth, height)
 	b.Cells.ResetCapacity(width)
 
@@ -328,18 +329,6 @@ func (b *PrimaryBuffer) Dimensions() (width, height int) {
 	return
 }
 
-// TopScrollableRegion is always 0 for a PrimaryBuffer,
-// scrollable regions are not supported.
-func (b *PrimaryBuffer) TopScrollableRegion() int {
-	return 0
-}
-
-// BottomScrollableRegion is always height for a PrimaryBuffer,
-// scrollable regions are not supported.
-func (b *PrimaryBuffer) BottomScrollableRegion() int {
-	return b.height
-}
-
 // InsertLinesCursor inserts blank lines on the cursor's position.
 func (b *PrimaryBuffer) InsertLinesCursor(count int) {
 	pos := b.CursorAtScroll()
@@ -390,6 +379,7 @@ func (b *PrimaryBuffer) DeleteLines(start, end int) {
 func (b *PrimaryBuffer) Reset() {
 	b.Cells.ResetPerformanceCapacity(b.height, b.width)
 	b.resetLinesTrim(0, b.height, true, b.defaultChar)
+	b.SetScrollableRegion(0, 0, true)
 	b.SetCursorAtScreen(term.Coordinates{}, false)
 }
 

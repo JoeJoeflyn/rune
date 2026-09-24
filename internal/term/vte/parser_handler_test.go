@@ -1296,3 +1296,67 @@ func TestInputClustersZWJFamilyThroughFullParser(t *testing.T) {
 		[]rune{'\u200D', '\U0001F469', '\u200D', '\U0001F467'},
 		cells[5].CombiningRunes())
 }
+
+// TestPrimaryScrollingRegion covers DECSTBM on the primary screen. The
+// discriminator for saving a scrolled-out line is the top margin, not
+// the size of the region: kitty adds to history only when the top
+// margin is zero (kitty screen.c:2408, :2427).
+func TestPrimaryScrollingRegion(t *testing.T) {
+	newScreen := func(t *testing.T) *parserHandler {
+		t.Helper()
+		p := newInputParserHandler(t, false)
+		p.Resize(4, 5)
+		writeToBuffer(p, "aaaa\nbbbb\ncccc\ndddd\neeee")
+		return p
+	}
+
+	t.Run("a region below the top discards the scrolled out line", func(t *testing.T) {
+		p := newScreen(t)
+		rowsBefore := p.sync.primBuf.Rows()
+		p.SetScrollingRegion(2, 4, false)
+		assert.Equal(t, term.Coordinates{Y: 1}, p.sync.buf.CursorAtScreen(),
+			"DECSTBM homes the cursor to the region")
+		p.setCursorAtScreen(term.Coordinates{Y: 3}, false)
+		p.Linefeed()
+		assertEqualBuf(t, p, "aaaa\ncccc\ndddd\n    \neeee")
+		assert.Equal(t, rowsBefore, p.sync.primBuf.Rows(), "nothing was saved")
+		assert.Equal(t, term.Coordinates{Y: 3}, p.sync.buf.CursorAtScreen())
+	})
+
+	t.Run("a region at the top saves the scrolled out line", func(t *testing.T) {
+		p := newScreen(t)
+		rowsBefore := p.sync.primBuf.Rows()
+		p.SetScrollingRegion(1, 4, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 3}, false)
+		p.Linefeed()
+		assertEqualBuf(t, p, "bbbb\ncccc\ndddd\n    \neeee")
+		assert.Equal(t, rowsBefore+1, p.sync.primBuf.Rows(), "the top row went to history")
+		assert.Equal(t, "aaaa", term.CellsToString(p.sync.primBuf.Cells.RawCells()[:1]))
+	})
+
+	t.Run("reverse index scrolls the region down", func(t *testing.T) {
+		p := newScreen(t)
+		p.SetScrollingRegion(2, 4, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 1}, false)
+		p.ReverseIndex()
+		assertEqualBuf(t, p, "aaaa\n    \nbbbb\ncccc\neeee")
+	})
+
+	t.Run("insert and delete lines stay inside the region", func(t *testing.T) {
+		p := newScreen(t)
+		p.SetScrollingRegion(2, 4, false)
+		p.setCursorAtScreen(term.Coordinates{Y: 1}, false)
+		p.InsertBlankLines(1)
+		assertEqualBuf(t, p, "aaaa\n    \nbbbb\ncccc\neeee")
+		p.DeleteLines(1)
+		assertEqualBuf(t, p, "aaaa\nbbbb\ncccc\n    \neeee")
+	})
+
+	t.Run("a resize resets the region", func(t *testing.T) {
+		p := newScreen(t)
+		p.SetScrollingRegion(2, 4, false)
+		p.Resize(4, 5)
+		assert.Equal(t, 0, p.sync.primBuf.TopScrollableRegion())
+		assert.Equal(t, 5, p.sync.primBuf.BottomScrollableRegion())
+	})
+}

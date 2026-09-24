@@ -120,6 +120,7 @@ type screenBuffer interface {
 	ResetLines(start, end int)
 	BottomScrollableRegion() int
 	TopScrollableRegion() int
+	SetScrollableRegion(top, bottom int, end bool)
 	Columns(line int) int
 	Rows() int
 	CellAt(pos term.Coordinates) *term.Cell
@@ -814,6 +815,12 @@ func (t *parserHandler) InsertBlankLines(count int) {
 	if start >= t.sync.buf.TopScrollableRegion() && start < t.sync.buf.BottomScrollableRegion() {
 		if t.useAlt {
 			t.scrollDownAltRelative(start, count)
+		} else if bottom := t.sync.primBuf.BottomScrollableRegion(); bottom < t.height {
+			// Inside a region the lines pushed past the bottom margin
+			// are dropped; outside one the primary buffer keeps them by
+			// growing history instead.
+			screenTop := t.sync.primBuf.Rows() - t.height
+			t.sync.primBuf.ScrollDown(screenTop+start, screenTop+bottom, min(count, bottom-start))
 		} else {
 			t.sync.primBuf.InsertLinesCursor(count)
 		}
@@ -835,6 +842,9 @@ func (t *parserHandler) DeleteLines(count int) {
 		count = min(count, t.height-start)
 		if t.useAlt {
 			t.scrollUpAltRelative(start, count)
+		} else if bottom := t.sync.primBuf.BottomScrollableRegion(); bottom < t.height {
+			screenTop := t.sync.primBuf.Rows() - t.height
+			t.sync.primBuf.ScrollUp(screenTop+start, screenTop+bottom, min(count, bottom-start))
 		} else {
 			end := start + count - 1
 			t.sync.primBuf.ScrollUp(start, end, count)
@@ -1277,11 +1287,7 @@ func (t *parserHandler) SetScrollingRegion(top, bottom int, end bool) {
 	t.sync.mu.Lock()
 	defer t.sync.mu.Unlock()
 
-	if t.useAlt {
-		t.setScrollingRegion(top, bottom, end)
-	} else {
-		t.shouldWrap = false
-	}
+	t.setScrollingRegion(top, bottom, end)
 }
 
 // DECKPAM - Set the keypad to applications mode (ESCape instead of digits).
@@ -1561,10 +1567,11 @@ func (t *parserHandler) scrollDown(rows int) bool {
 	buf := t.sync.primBuf
 	t.shouldWrap = false
 
-	// primary buffer includes history so we cannot simply
-	// use bottom and top of scrollable region.
-	start := buf.Rows() - t.height
-	end := buf.Rows()
+	// The primary buffer keeps history in the same matrix, so the
+	// region rows have to be offset by the screen's first row.
+	screenTop := buf.Rows() - t.height
+	start := screenTop + buf.TopScrollableRegion()
+	end := screenTop + buf.BottomScrollableRegion()
 	count := max(0, min(rows, end-start))
 	if count > 0 {
 		buf.ScrollDown(start, end, count)
@@ -1580,12 +1587,36 @@ func (t *parserHandler) scrollUp(count int) bool {
 	buf := t.sync.primBuf
 	t.shouldWrap = false
 
+	top, bottom := buf.TopScrollableRegion(), buf.BottomScrollableRegion()
+	if top > 0 {
+		// Lines leaving a region that does not start at the top of the
+		// screen are discarded rather than saved (kitty screen.c:2408,
+		// :2427).
+		count = max(0, min(count, bottom-top))
+		if count <= 0 {
+			return false
+		}
+		screenTop := buf.Rows() - t.height
+		buf.ScrollUp(screenTop+top, screenTop+bottom, count)
+		return true
+	}
+
 	rows := buf.Rows()
+	if bottom < t.height {
+		rows = bottom
+	}
 	count = max(0, min(count, rows))
 	if count <= 0 {
 		return false
 	}
 	buf.ScrollUpHistory(count)
+	if bottom < t.height {
+		// ScrollUpHistory moved the whole screen up to save the top
+		// rows; rotate the rows below the bottom margin back down over
+		// the blanks it appended.
+		r := buf.Rows()
+		buf.ScrollDown(r-(t.height-bottom)-count, r, count)
+	}
 	return true
 }
 
@@ -1672,13 +1703,11 @@ func (t *parserHandler) setCursorShape(shape vteparser.CursorShape) {
 }
 
 func (t *parserHandler) setScrollingRegion(top, bottom int, end bool) {
-	if t.sync.buf != t.sync.altBuf {
-		panic("called set scrolling region on non alternate buffer")
-	}
 	// top and bottom are not zero indexed. We leave bottom intact to
 	// maintain right exclusive range semantics.
 	top--
-	t.sync.altBuf.SetScrollableRegion(top, bottom, end)
+	t.sync.buf.SetScrollableRegion(top, bottom, end)
+	t.shouldWrap = false
 	t.setCursorAtScreen(term.Coordinates{}, true)
 }
 
