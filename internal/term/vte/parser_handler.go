@@ -1698,11 +1698,19 @@ func (t *parserHandler) setCursorShape(shape vteparser.CursorShape) {
 	}
 }
 
+// setScrollingRegion implements DECSTBM. top and bottom are 1-based;
+// bottom is kept as is since it doubles as the exclusive end of the
+// 0-based region. A region of fewer than two rows is ignored, as in
+// kitty and xterm, so that DECSTBM never traps the cursor on one line.
 func (t *parserHandler) setScrollingRegion(top, bottom int, end bool) {
-	// top and bottom are not zero indexed. We leave bottom intact to
-	// maintain right exclusive range semantics.
-	top--
-	t.sync.buf.SetScrollableRegion(top, bottom, end)
+	top = min(top-1, t.height)
+	if end || bottom > t.height {
+		bottom = t.height
+	}
+	if bottom-top < 2 {
+		return
+	}
+	t.sync.buf.SetScrollableRegion(top, bottom, false)
 	t.shouldWrap = false
 	t.setCursorAtScreen(term.Coordinates{}, true)
 }

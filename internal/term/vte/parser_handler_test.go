@@ -899,12 +899,20 @@ func (tm *mockTabManager) bell() {
 
 func newInputParserHandler(t *testing.T, alt bool) *parserHandler {
 	t.Helper()
+	ph, _ := newInputParserHandlerPty(t, alt)
+	return ph
+}
+
+// newInputParserHandlerPty is newInputParserHandler exposing the pty
+// master, for tests that assert on what the program is sent.
+func newInputParserHandlerPty(t *testing.T, alt bool) (*parserHandler, *workspacetest.File) {
+	t.Helper()
 	testURI, err := workspaceapi.ParseURI("memory:///radical")
 	require.NoError(t, err)
-	mockPtyFile := workspacetest.File{}
+	mockPtyFile := &workspacetest.File{}
 	tm := mockTabManager{}
 	attrs := DefaultConfig().NeedsAttentionAttributes
-	pty := workspaceapi.Pty{Master: &mockPtyFile, Slave: &mockPtyFile}
+	pty := workspaceapi.Pty{Master: mockPtyFile, Slave: mockPtyFile}
 	ph := newParserHandler(new(sync.Mutex), pty, &tm,
 		clipboard.NewInMemory(), tm.bell, testURI, attrs, false, 10000, 0)
 	ph.sync.primBuf.SetDefaultChar(' ')
@@ -914,7 +922,7 @@ func newInputParserHandler(t *testing.T, alt bool) *parserHandler {
 	} else {
 		ph.UnsetPrivateMode(vteparser.PrivateModeSwapScreenAndSetRestoreCursor)
 	}
-	return ph
+	return ph, mockPtyFile
 }
 
 // TestBellFocusChangeRace pins that Bell synchronizes with focus
@@ -1474,5 +1482,79 @@ func TestIndexOutsideScrollingRegion(t *testing.T) {
 				assert.Equal(t, tt.wantCursor, p.sync.buf.CursorAtScreen())
 			})
 		}
+	}
+}
+
+// forEachScreen runs fn against a fresh handler on the primary and on
+// the alternate screen.
+func forEachScreen(t *testing.T, name string, fn func(t *testing.T, p *parserHandler, pty *workspacetest.File)) {
+	t.Helper()
+	for _, alt := range []bool{false, true} {
+		screen := "primary"
+		if alt {
+			screen = "alt"
+		}
+		t.Run(name+"/"+screen, func(t *testing.T) {
+			p, pty := newInputParserHandlerPty(t, alt)
+			fn(t, p, pty)
+		})
+	}
+}
+
+// TestSetScrollingRegion covers the bounds of DECSTBM: a region of fewer
+// than two rows is ignored and the bottom is clamped to the screen
+// (kitty screen_set_margins, screen.c:1463; xterm CASE_DECSTBM).
+func TestSetScrollingRegion(t *testing.T) {
+	tests := []struct {
+		name        string
+		top, bottom int
+		end         bool
+		wantTop     int
+		wantBottom  int
+		ignored     bool
+	}{
+		{
+			name: "inverted region is ignored",
+			top:  4, bottom: 2,
+			wantTop: 0, wantBottom: 6, ignored: true,
+		},
+		{
+			name: "single row region is ignored",
+			top:  3, bottom: 3,
+			wantTop: 0, wantBottom: 6, ignored: true,
+		},
+		{
+			name: "two row region is accepted",
+			top:  3, bottom: 4,
+			wantTop: 2, wantBottom: 4,
+		},
+		{
+			name: "bottom beyond the screen is clamped",
+			top:  2, bottom: 99,
+			wantTop: 1, wantBottom: 6,
+		},
+		{
+			name: "top beyond the screen is ignored",
+			top:  7, end: true,
+			wantTop: 0, wantBottom: 6, ignored: true,
+		},
+		{
+			name: "defaults select the whole screen",
+			top:  1, end: true,
+			wantTop: 0, wantBottom: 6,
+		},
+	}
+	for _, tt := range tests {
+		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, _ *workspacetest.File) {
+			p.Resize(8, 6)
+			before := term.Coordinates{X: 2, Y: 1}
+			p.setCursorAtScreen(before, false)
+			p.SetScrollingRegion(tt.top, tt.bottom, tt.end)
+			assert.Equal(t, tt.wantTop, p.sync.buf.TopScrollableRegion())
+			assert.Equal(t, tt.wantBottom, p.sync.buf.BottomScrollableRegion())
+			if tt.ignored {
+				assert.Equal(t, before, p.sync.buf.CursorAtScreen(), "an ignored DECSTBM leaves the cursor")
+			}
+		})
 	}
 }
