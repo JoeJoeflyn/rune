@@ -92,7 +92,7 @@ func (i *IDE) provisionManifest() string {
 }
 
 // EventPublisher is a function that publishes the given event back
-// into the event loop.
+// into the event loop. It should be safe for concurrent use.
 type EventPublisher func(term.Event) bool
 
 // New allocates storage for a new IDE and initializes it with config

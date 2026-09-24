@@ -32,6 +32,7 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/term/termrpc"
 	gomock "go.uber.org/mock/gomock"
 	"unstable.build/rune/internal/browser/browsertest"
+	"unstable.build/rune/internal/debug"
 )
 
 const asyncResultsSleepDuration = 300 * time.Millisecond
@@ -182,6 +183,39 @@ func TestServerPublish(t *testing.T) {
 
 func TestServerSetContent(t *testing.T) {
 	/* tested via ex integration tests */
+}
+
+// Publish reaches a deliberately lock-free sink: eventRouter.newPublisher
+// (an atomic load) into gui.PublishEvent (an atomic store or a buffered
+// channel send, plus the concurrent-safe ebiten.ScheduleFrame). Taking the
+// UI lock to get there only queued extension redraws behind the render
+// loop, which holds that lock for its entire tick.
+func TestServerPublishDoesNotWaitOnUILock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	var mu sync.Mutex
+	s, mock := newTestServer(ctrl, &mu)
+	mock.EXPECT().PublishEvent(gomock.Any()).Times(1)
+
+	// Stand in for gui.Update holding the lock across a whole tick.
+	mu.Lock()
+	defer mu.Unlock()
+
+	done := make(chan error, 1)
+	go debug.CapturePanicReport(func() {
+		_, err := s.Publish(context.Background(), &browserrpc.PublishRequest{
+			Ev: &termrpc.Event{Type: termrpc.Event_TypeInterrupt},
+		})
+		done <- err
+	})
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Publish blocked on the UI lock held by the render loop")
+	}
 }
 
 // resizeRecorder stands in for the handler on the far end of a tab's

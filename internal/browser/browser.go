@@ -175,6 +175,11 @@ type ResourceOpener interface {
 }
 
 // EventPublisher is the interface that wraps the method PublishEvent.
+//
+// PublishEvent must be safe to call from any goroutine without holding
+// the host UI lock. Extension RPC and vte goroutines publish redraws
+// while the render loop holds that lock for the whole of a tick, so an
+// implementation that needs it would deadlock them against the loop.
 type EventPublisher interface {
 	PublishEvent(term.Event) error
 }

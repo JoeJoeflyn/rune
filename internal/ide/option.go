@@ -85,7 +85,7 @@ func WithDispatchOnPreview(cmd string, fn previewFunc) Option {
 }
 
 // WithPublishEvent sets the EventPublisher of the IDE.
-// The default is tui.PublishEvent.
+// The given EventPublisher must be safe for concurrent use.
 func WithPublishEvent(p EventPublisher) Option {
 	return func(opts *options) {
 		opts.publishEvent = p

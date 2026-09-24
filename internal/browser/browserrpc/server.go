@@ -253,8 +253,10 @@ func (s *Server) Publish(
 		return nil, err
 	}
 
-	s.browser.Lock()
-	defer s.browser.Unlock()
+	// Deliberately unlocked: EventPublisher is contracted to be
+	// concurrent-safe, and the sink is an atomic store or a buffered
+	// channel send. Taking the UI lock here would queue every extension
+	// redraw behind a render loop that holds it for a whole tick.
 	err = s.browser.PublishEvent(ev)
 	if err != nil {
 		return nil, err

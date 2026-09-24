@@ -374,6 +374,17 @@ func (g *GUI) Update() error {
 		}
 	}
 
+	// The loop wakes on every vsync whether or not anything happened.
+	// Taking the UI lock to do nothing would contend, for no benefit,
+	// with the extension RPC goroutines that need it, and the loop holds
+	// it for the whole tick. An empty queue means no interrupt was
+	// pending either, so no draw and no echo wait can be owed.
+	if len(g.pendingEvents) == 0 && !needsDraw && g.drag.idle() {
+		g.prevTickKey = false
+		g.iteration++
+		return nil
+	}
+
 	// set context with default iteration
 	ctx := tui.ContextWithIteration(g.ctx, g.iteration)
 

@@ -756,6 +756,7 @@ func WithFileExplorer(explorer FileExplorerConfig) Option {
 }
 
 // WithEventPublisher sets the Component's event publisher
+// The given function must be safe for concurrent use.
 func WithEventPublisher(f func(term.Event) bool) Option {
 	return func(cfg *Config) {
 		cfg.EventPublisher = f
