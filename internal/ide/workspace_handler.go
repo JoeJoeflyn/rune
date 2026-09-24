@@ -1183,6 +1183,17 @@ func (h *workspaceManagerHandler) setRightInset(cells int) {
 	h.Resize(h.width, h.height)
 }
 
+// windowRows satisfies windowRows: the rows the focused workspace's
+// windows occupy, which exclude both the bar this handler lays out
+// around them and the bars the workspace lays out around its own.
+func (h *workspaceManagerHandler) windowRows() (top, rows int) {
+	if h.drawBar() {
+		top = h.union.MainPosition().Y
+	}
+	exTop, exRows := h.focusEx().windowRows()
+	return top + exTop, exRows
+}
+
 func (h *workspaceManagerHandler) Draw(w term.Writer) {
 	target := h.focusHandler()
 	h.focusProxy.Target = target
@@ -1262,35 +1273,6 @@ func (h *workspaceManagerHandler) Handle(ev term.Event) (exit, handled bool) {
 
 func (h *workspaceManagerHandler) Cursor() (term.Coordinates, term.CursorStyle, bool) {
 	return h.focusHandler().Cursor()
-}
-
-// isExitCommand reports whether name is a command that exits the IDE.
-func isExitCommand(name string) bool {
-	switch name {
-	case "quit", "forcequit!", "writequit", "writeforcequit!":
-		return true
-	}
-	return false
-}
-
-// exitRequested reports whether ev is bound to a command that exits
-// the IDE under the focused workspace's key bindings. Two-key
-// sequences (e.g. the emacs <c-x><c-c>) are resolved by the sequencer
-// inside ex and are not visible here.
-func (h *workspaceManagerHandler) exitRequested(ev term.Event) bool {
-	if ev.Type != term.EventKey {
-		return false
-	}
-	cmdsAndArgs, ok := h.focusEx().comp.CommandKeyBinding(ev.KeyComb())
-	if !ok {
-		return false
-	}
-	for _, cmd := range cmdsAndArgs {
-		if len(cmd) > 0 && isExitCommand(cmd[0]) {
-			return true
-		}
-	}
-	return false
 }
 
 func (h *workspaceManagerHandler) Selection() (string, bool) {

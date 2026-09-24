@@ -2865,6 +2865,14 @@ func (e *ex) Selection() (string, bool) {
 	return e.focusHandler().Selection()
 }
 
+// windowRows satisfies windowRows: the rows this workspace's windows
+// occupy, which exclude the bars laid out around them.
+func (e *ex) windowRows() (top, rows int) {
+	b := e.comp.Browser()
+	_, height := b.WindowManagerSize()
+	return b.WindowManagerPosition().Y, height
+}
+
 // setRightInset resizes the column reserved along the right edge, both
 // in the editor layout and for the notifications floating over it.
 func (e *ex) setRightInset(cells int) {
