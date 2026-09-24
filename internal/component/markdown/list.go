@@ -37,8 +37,12 @@ type listBlock struct {
 	ordered bool
 	start   int
 	items   []listItem
-	cfg     *Config
-	w       int // width from last Height call
+	// loose marks a list whose source separates items with blank
+	// lines; CommonMark renders those items as paragraphs, so they get
+	// a blank line between them.
+	loose bool
+	cfg   *Config
+	w     int // width from last Height call
 }
 
 var _ block = (*listBlock)(nil)
@@ -100,13 +104,15 @@ func (l *listBlock) heightAtIndent(width, indent int) int {
 	h := 0
 	effectiveWidth := width - indent - listIndent
 
-	for _, item := range l.items {
+	for i, item := range l.items {
 		lines := countWrappedLines(item.content, effectiveWidth)
 		h += lines
 
 		if item.nested != nil {
+			h += l.nestedGap()
 			h += item.nested.heightAtIndent(width, indent+listIndent)
 		}
+		h += l.gapAfter(i)
 	}
 
 	// Only add spacing at top level, not for nested lists
@@ -142,8 +148,10 @@ func (l *listBlock) drawAtIndent(w term.Writer, y, indent int) int {
 		}
 
 		if item.nested != nil {
+			y += l.nestedGap()
 			y += item.nested.drawAtIndent(w, y, indent+listIndent)
 		}
+		y += l.gapAfter(i)
 	}
 
 	drawnHeight := y - startY
@@ -158,7 +166,7 @@ func (l *listBlock) dimensionsAtIndent(indent int) (width, height int) {
 	maxWidth := 0
 	totalHeight := 0
 
-	for _, item := range l.items {
+	for i, item := range l.items {
 		itemWidth := indent + listIndent + item.content.Width()
 		if itemWidth > maxWidth {
 			maxWidth = itemWidth
@@ -166,12 +174,14 @@ func (l *listBlock) dimensionsAtIndent(indent int) (width, height int) {
 		totalHeight++
 
 		if item.nested != nil {
+			totalHeight += l.nestedGap()
 			nestedW, nestedH := item.nested.dimensionsAtIndent(indent + listIndent)
 			if nestedW > maxWidth {
 				maxWidth = nestedW
 			}
 			totalHeight += nestedH
 		}
+		totalHeight += l.gapAfter(i)
 	}
 
 	// Only add spacing at top level
@@ -179,6 +189,24 @@ func (l *listBlock) dimensionsAtIndent(indent int) (width, height int) {
 		totalHeight++
 	}
 	return maxWidth, totalHeight
+}
+
+// gapAfter reports the blank rows that follow the item at index i.
+func (l *listBlock) gapAfter(i int) int {
+	if l.loose && i < len(l.items)-1 {
+		return 1
+	}
+	return 0
+}
+
+// nestedGap reports the blank rows between an item's own text and the
+// list nested under it. A loose list wraps item text in a paragraph,
+// so the sub-list reads as a block of its own.
+func (l *listBlock) nestedGap() int {
+	if l.loose {
+		return 1
+	}
+	return 0
 }
 
 func (l *listBlock) getBullet(index int, item listItem) string {
@@ -204,7 +232,7 @@ func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
 	effectiveWidth := l.w - indent - listIndent
 	currentY := 0
 
-	for _, item := range l.items {
+	for i, item := range l.items {
 		lines := wrapTextRun(item.content, effectiveWidth)
 		lineCount := len(lines)
 		if lineCount == 0 {
@@ -225,11 +253,13 @@ func (l *listBlock) spanAtIndent(x, y, indent int) (text, url string, ok bool) {
 
 		if item.nested != nil {
 			nestedHeight := item.nested.heightAtIndent(l.w, indent+listIndent)
+			currentY += l.nestedGap()
 			if y >= currentY && y < currentY+nestedHeight {
 				return item.nested.spanAtIndent(x, y-currentY, indent+listIndent)
 			}
 			currentY += nestedHeight
 		}
+		currentY += l.gapAfter(i)
 	}
 	return
 }
@@ -267,11 +297,13 @@ func (l *listBlock) charAtIndent(x, y, indent int) (rune, bool) {
 
 		if item.nested != nil {
 			nestedHeight := item.nested.heightAtIndent(l.w, indent+listIndent)
+			currentY += l.nestedGap()
 			if y >= currentY && y < currentY+nestedHeight {
 				return item.nested.charAtIndent(x, y-currentY, indent+listIndent)
 			}
 			currentY += nestedHeight
 		}
+		currentY += l.gapAfter(i)
 	}
 	return 0, false
 }
