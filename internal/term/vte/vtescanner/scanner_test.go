@@ -196,6 +196,24 @@ func TestScannerDCSParamsPerDispatch(t *testing.T) {
 }
 
 func TestScanner(t *testing.T) {
+	// kitty terminates an APC string on BEL as well as ST
+	// (vt-parser.c:419-441, :466-468). Without it the scanner keeps
+	// collecting and swallows every byte until the next ST.
+	t.Run("bel terminates a control string", func(t *testing.T) {
+		var d testDispatcher
+		scanner := NewScanner(&d)
+		for _, ch := range []byte("\x1b_Gi=1;AAAA\x07hi") {
+			scanner.Advance(ch)
+		}
+		var printed []rune
+		for _, ev := range d.dispatched {
+			if ev, ok := ev.(dispatchedPrint); ok {
+				printed = append(printed, ev.r)
+			}
+		}
+		assert.Equal(t, []rune("hi"), printed)
+	})
+
 	t.Run("parse osc", func(t *testing.T) {
 		var d testDispatcher
 		scanner := NewScanner(&d)

@@ -65,6 +65,15 @@ func (p *Scanner) Advance(ch byte) {
 		return
 	}
 
+	// The generated table ignores BEL inside a control string, but
+	// kitty accepts it as a terminator alongside ST (kitty
+	// vt-parser.c:419-441, :466-468). Without this an APC terminated
+	// with BEL swallows everything up to the next ST.
+	if p.state == SosPmApcString && ch == 0x07 {
+		p.state = Ground
+		return
+	}
+
 	change := tableStateChanges[uint8(Anywhere)][uint8(ch)]
 	if change == 0 {
 		change = tableStateChanges[uint8(p.state)][uint8(ch)]
