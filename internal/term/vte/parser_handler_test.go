@@ -1755,3 +1755,43 @@ func TestCursorMotionWithinMargins(t *testing.T) {
 		})
 	}
 }
+
+// TestResetsClearScrollingRegion covers the sequences that reset the
+// margins on both screens: DECCOLM and DECALN (xterm reset_margins
+// callers; kitty screen_alignment_display, screen.c:1487).
+func TestResetsClearScrollingRegion(t *testing.T) {
+	tests := []struct {
+		name  string
+		input func(p *parserHandler)
+	}{
+		{"DECCOLM set", func(p *parserHandler) { p.SetPrivateMode(vteparser.PrivateModeColumnMode) }},
+		{"DECCOLM reset", func(p *parserHandler) { p.UnsetPrivateMode(vteparser.PrivateModeColumnMode) }},
+		{"DECALN", (*parserHandler).Decaln},
+	}
+	for _, tt := range tests {
+		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, _ *workspacetest.File) {
+			p.Resize(4, 5)
+			p.SetScrollingRegion(2, 4, false)
+			p.setCursorAtScreen(term.Coordinates{X: 1, Y: 3})
+			tt.input(p)
+			assert.Equal(t, 0, p.sync.buf.TopScrollableRegion())
+			assert.Equal(t, 5, p.sync.buf.BottomScrollableRegion())
+			assert.Equal(t, term.Coordinates{}, p.sync.buf.CursorAtScreen())
+		})
+	}
+}
+
+// TestDecalnFillsTheScreen pins that DECALN fills the screen and not
+// the scrollback, which lives in the same matrix on the primary screen.
+func TestDecalnFillsTheScreen(t *testing.T) {
+	p := newInputParserHandler(t, false)
+	p.Resize(4, 5)
+	writeToBuffer(p, "h1\nh2\naaaa\nbbbb\ncccc\ndddd\neeee")
+	require.Equal(t, 7, p.sync.primBuf.Rows())
+	history := term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2])
+
+	p.Decaln()
+	assertEqualBuf(t, p, "EEEE\nEEEE\nEEEE\nEEEE\nEEEE")
+	assert.Equal(t, history, term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2]),
+		"the scrollback is untouched")
+}

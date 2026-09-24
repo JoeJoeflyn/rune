@@ -1405,7 +1405,9 @@ func (t *parserHandler) Decaln() {
 	} else {
 		buf = &t.sync.primBuf.AltBuffer
 	}
-	buf.ResetLinesWith(0, buf.Cells.Rows(), 'E')
+	rows := buf.Cells.Rows()
+	buf.ResetLinesWith(max(0, rows-t.height), rows, 'E')
+	t.resetScrollingRegion()
 }
 
 // Push a title onto the stack.
@@ -1535,12 +1537,8 @@ func (t *parserHandler) swapAlt() {
 }
 
 func (t *parserHandler) deccolm() {
-	if t.useAlt {
-		t.setScrollingRegion(1, 0, true)
-	} else {
-		t.shouldWrap = false
-	}
 	t.resetBufLines(t.sync.buf)
+	t.resetScrollingRegion()
 }
 
 func (t *parserHandler) resetBufLines(buf screenBuffer) {
@@ -1710,6 +1708,14 @@ func (t *parserHandler) setScrollingRegion(top, bottom int, end bool) {
 		return
 	}
 	t.sync.buf.SetScrollableRegion(top, bottom, false)
+	t.goTo(0, 0)
+}
+
+// resetScrollingRegion opens the margins to the whole screen and homes
+// the cursor, as the sequences that reset the margins as a side effect
+// do.
+func (t *parserHandler) resetScrollingRegion() {
+	t.sync.buf.SetScrollableRegion(0, 0, true)
 	t.goTo(0, 0)
 }
 
