@@ -683,6 +683,128 @@ func TestTabsDrawResize(t *testing.T) {
 	comptest.TestComponent(t, l, w, tests)
 }
 
+// TestTabsTabRect checks that TabRect lands on the cells Draw actually
+// paints a tab's label into, across the frame and highlight modes that
+// move the label row and a layout that shrinks or hides tabs.
+func TestTabsTabRect(t *testing.T) {
+	type want struct {
+		x, y, width int
+	}
+	for _, tc := range []struct {
+		name          string
+		width, height int
+		border        bool
+		bottom        bool
+		separator     string
+		noIcon        bool
+		action        rune
+		tabs          []string
+		focus         int
+		want          map[int]want
+	}{
+		{
+			name: "bordered", width: 20, height: 3, border: true,
+			tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {3, 1, 5}, 1: {12, 1, 4}},
+		},
+		{
+			name: "bordered tall centres the label", width: 20, height: 9,
+			border: true, tabs: []string{"alpha"},
+			want: map[int]want{0: {3, 4, 5}},
+		},
+		{
+			name: "borderless below highlight", width: 20, height: 2,
+			tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {2, 1, 5}, 1: {11, 1, 4}},
+		},
+		{
+			name: "borderless bottom highlight", width: 20, height: 2,
+			bottom: true, tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {2, 0, 5}, 1: {11, 0, 4}},
+		},
+		{
+			name: "borderless single row", width: 20, height: 1,
+			tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {2, 0, 5}, 1: {11, 0, 4}},
+		},
+		{
+			name: "custom separator", width: 20, height: 1,
+			separator: " | ", tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {2, 0, 5}, 1: {12, 0, 4}},
+		},
+		{
+			name: "without icons", width: 20, height: 1, noIcon: true,
+			tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {0, 0, 5}, 1: {7, 0, 4}},
+		},
+		{
+			name: "action glyph", width: 30, height: 1, action: 'x',
+			tabs: []string{"alpha", "beta"},
+			want: map[int]want{0: {2, 0, 8}, 1: {14, 0, 7}},
+		},
+		{
+			// Same geometry as TestTabsDrawResize at width 20 with
+			// focus on E: D, E and F are visible, the rest are not,
+			// and D and F shrank to their icons.
+			name: "shrunk layout hides tabs", width: 20, height: 4,
+			border: true, focus: 4,
+			tabs: []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta"},
+			want: map[int]want{4: {7, 1, 7}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := NewTabs()
+			l.SetBorder(tc.border)
+			l.SetBottomHighlight(tc.bottom)
+			if tc.separator != "" {
+				l.SetNameSeparator(tc.separator)
+			}
+			l.Resize(tc.width, tc.height)
+			icon := func(idx int) rune {
+				if tc.noIcon {
+					return 0
+				}
+				return rune(tc.tabs[idx][0] - 'a' + 'A')
+			}
+			for idx, name := range tc.tabs {
+				l.Add(icon(idx), name)
+				if tc.action != 0 {
+					l.SetTabAction(idx, tc.action, term.Attributes{})
+				}
+			}
+			l.ResetFocus()
+			l.SetFocus(tc.focus)
+
+			_, _, ok := l.TabRect(0)
+			assert.False(t, ok, "no layout before the first draw")
+
+			w := term.NewStringWriter(tc.width, tc.height)
+			l.Draw(w)
+			cells := w.Cells()
+
+			for idx := range tc.tabs {
+				offset, width, ok := l.TabRect(idx)
+				exp, visible := tc.want[idx]
+				require.Equal(t, visible, ok, "tab %d", idx)
+				if !visible {
+					continue
+				}
+				assert.Equal(t, exp, want{offset.X, offset.Y, width}, "tab %d", idx)
+				// The rect opens on the tab's name, leaving the icon
+				// and the blank after it outside.
+				row := cells[offset.Y*tc.width : (offset.Y+1)*tc.width]
+				assert.Equal(t, rune(tc.tabs[idx][0]), row[offset.X].Ch, "tab %d", idx)
+				if !tc.noIcon {
+					assert.Equal(t, icon(idx), row[offset.X-2].Ch, "tab %d", idx)
+					assert.Equal(t, ' ', row[offset.X-1].Ch, "tab %d", idx)
+				}
+			}
+			_, _, ok = l.TabRect(len(tc.tabs))
+			assert.False(t, ok, "an index past the tabs is not laid out")
+		})
+	}
+}
+
 func TestTabsTabAt(t *testing.T) {
 	t.Run("should return false if no tab in list", func(t *testing.T) {
 		l := NewTabs()

@@ -308,3 +308,28 @@ xxxxxxxxxxx
 		})
 	}
 }
+
+// Intensity scales the blend towards Color at the band's centre: zero
+// keeps the stock full strength, and a fraction stops partway.
+func TestShineIntensity(t *testing.T) {
+	black := term.NewRGBColor(0, 0, 0)
+	shade := func(intensity float) int32 {
+		params := DefaultShineParams()
+		params.Direction = DirectionLeftToRight
+		params.Intensity = intensity
+		cells := [][]term.Cell{{{Ch: 'x', Width: 1, Fg: black}}}
+		// A single column sits at t=0; frame/total puts the band there.
+		total := 1000
+		frame := int(float(total) * params.BandWidth / (1 + 2*params.BandWidth))
+		Shine(params, term.Attributes{Fg: black}).Shade(frame, total, cells)
+		r, _, _ := cells[0][0].Fg.RGB()
+		return r
+	}
+	full := shade(0)
+	require.Greater(t, full, int32(200), "the band must peak on the cell")
+	assert.Equal(t, full, shade(1))
+	half := shade(0.5)
+	assert.Greater(t, half, int32(0))
+	assert.Less(t, half, full)
+	assert.InDelta(t, float64(full)/2, float64(half), 10)
+}

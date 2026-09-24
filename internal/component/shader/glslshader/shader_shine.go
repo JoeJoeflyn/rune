@@ -81,6 +81,12 @@ type ShineParams struct {
 	// Cycles is the number of times the shine band sweeps across the
 	// animation. Values less than 1 are treated as 1.
 	Cycles int
+	// Intensity scales how far a cell's foreground is blended towards
+	// Color at the centre of the band. Zero means full strength, so
+	// existing callers are unaffected.
+	//
+	// (range 0..1 clamped)
+	Intensity float
 }
 
 // DefaultShineParams returns a sane set of [ShineParams].
@@ -125,6 +131,10 @@ func (s *shine) Shade(frame, total int, in [][]term.Cell) {
 	if bandWidth <= 0 {
 		return
 	}
+	strength := 1.0
+	if s.Intensity > 0 {
+		strength = clamp(s.Intensity, 0.0, 1.0)
+	}
 
 	// Sweep "pulse" from -bandWidth to 1+bandWidth so the band fully enters
 	// from the bottom-left corner and fully exits past the top-right corner.
@@ -154,7 +164,7 @@ func (s *shine) Shade(frame, total int, in [][]term.Cell) {
 			}
 			xNorm := float(x) / maxX
 			t := directionT(s.Direction, xNorm, yNorm)
-			intensity := smoothstep(bandWidth, 0.0, abs(t-pos))
+			intensity := smoothstep(bandWidth, 0.0, abs(t-pos)) * strength
 			if intensity <= 0 {
 				continue
 			}

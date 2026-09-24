@@ -649,6 +649,67 @@ func (t *Tabs) tabBounds(idx int) (start, width int, ok bool) {
 	return 0, 0, false
 }
 
+// TabRect returns where the label of the tab at idx was last drawn,
+// past its icon: its first cell and its width, on the single row that
+// hosts the labels. The icon is left out because its attributes are
+// what set the focused tab apart. It reports false when idx is not part
+// of the last drawn layout, such as a tab scrolled out of view or one
+// added since the last Draw, or when the tab shrank to its icon.
+func (t *Tabs) TabRect(idx int) (offset term.Coordinates, width int, ok bool) {
+	if len(t.layout.cells) == 0 {
+		return term.Coordinates{}, 0, false
+	}
+	x, width, ok := t.tabBounds(idx)
+	if !ok {
+		return term.Coordinates{}, 0, false
+	}
+	if tab := t.tabs[idx]; tab.icon != 0 {
+		// Mirrors insertTabCell: the action glyph's block is reserved
+		// first, and a cell with no room for the icon is drawn blank.
+		iconW := runeCellWidth(tab.icon)
+		labelW := width
+		if actionW := tabActionWidth(tab); actionW <= width {
+			labelW -= actionW
+		}
+		if labelW < iconW {
+			return term.Coordinates{}, 0, false
+		}
+		skip := iconW
+		if labelW > iconW {
+			// The blank that parts the icon from the name.
+			skip++
+		}
+		x += skip
+		width -= skip
+	}
+	xRight := t.width
+	if t.border {
+		xRight--
+	}
+	width = min(width, xRight-x)
+	if width <= 0 {
+		return term.Coordinates{}, 0, false
+	}
+	return term.Coordinates{X: x, Y: t.labelRow()}, width, true
+}
+
+// labelRow is the row Draw puts the labels on. They sit in a span that
+// is vertically centred within the rows the frame and the focus
+// highlight leave free, and a span under three rows is not padded.
+func (t *Tabs) labelRow() int {
+	top, rows := 0, t.height
+	switch {
+	case t.border:
+		top, rows = 1, t.height-2
+	case t.height >= 2 && !t.bottomHighlight:
+		top, rows = 1, t.height-1
+	}
+	if rows >= 3 {
+		return top + (rows-1)/2
+	}
+	return top
+}
+
 // Tab returns the name of the tab at idx.
 func (t *Tabs) Tab(idx int) (string, bool) {
 	if idx >= len(t.tabs) {

@@ -1585,13 +1585,18 @@ func (c *Component) OnTabExit(uri workspaceapi.URI) bool {
 	return c.comp.OnTabExit(uri)
 }
 
-// SetTabActivity satisfies browser.TabManager. Activity is not rendered
-// yet, so the mark is accepted for any known tab and dropped.
-func (c *Component) SetTabActivity(uri workspaceapi.URI, _ bool) error {
-	if _, ok := c.comp.Tab(uri); !ok {
+// SetTabActivity satisfies browser.TabManager.
+func (c *Component) SetTabActivity(uri workspaceapi.URI, active bool) error {
+	if !c.comp.SetTabActivity(uri, active) {
 		return errors.New("set activity called on unknown tab")
 	}
 	return nil
+}
+
+// HasActiveTabs reports whether any tab of this Component is marked
+// active via SetTabActivity.
+func (c *Component) HasActiveTabs() bool {
+	return c.comp.HasActiveTabs()
 }
 
 // Prompt creates a new prompt to be drawn as an overlay on the next call to Draw

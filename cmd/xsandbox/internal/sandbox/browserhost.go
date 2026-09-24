@@ -148,8 +148,8 @@ func (h *browserHost) OnTabExit(uri workspaceapi.URI) bool {
 	return h.comp.OnTabExit(uri)
 }
 
-func (h *browserHost) SetTabActivity(uri workspaceapi.URI, _ bool) error {
-	if _, ok := h.comp.Tab(uri); !ok {
+func (h *browserHost) SetTabActivity(uri workspaceapi.URI, active bool) error {
+	if !h.comp.SetTabActivity(uri, active) {
 		return errors.New("set tab activity called on unknown tab")
 	}
 	return nil
