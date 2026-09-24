@@ -1795,3 +1795,54 @@ func TestDecalnFillsTheScreen(t *testing.T) {
 	assert.Equal(t, history, term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2]),
 		"the scrollback is untouched")
 }
+
+// TestEraseAboveKeepsScrollback covers ED 1 on the primary screen: it
+// erases from the top of the screen to the cursor, never the scrollback
+// above it.
+func TestEraseAboveKeepsScrollback(t *testing.T) {
+	tests := []struct {
+		name    string
+		history string
+		cursor  term.Coordinates
+		want    string
+	}{
+		{
+			name:   "from the second row without scrollback",
+			cursor: term.Coordinates{Y: 1},
+			want:   "    \n bbb\ncccc\ndddd\neeee",
+		},
+		{
+			name:    "from the third row with scrollback",
+			history: "h1\nh2\n",
+			cursor:  term.Coordinates{X: 1, Y: 2},
+			want:    "    \n    \n  cc\ndddd\neeee",
+		},
+		{
+			name:    "from the first row with scrollback",
+			history: "h1\nh2\n",
+			cursor:  term.Coordinates{X: 2},
+			want:    "   a\nbbbb\ncccc\ndddd\neeee",
+		},
+	}
+	for _, tt := range tests {
+		forEachScreen(t, tt.name, func(t *testing.T, p *parserHandler, _ *workspacetest.File) {
+			if p.useAlt && tt.history != "" {
+				t.Skip("the alternate screen has no scrollback")
+			}
+			p.Resize(4, 5)
+			writeToBuffer(p, tt.history+"aaaa\nbbbb\ncccc\ndddd\neeee")
+			var history string
+			if tt.history != "" {
+				history = term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2])
+			}
+			p.setCursorAtScreen(tt.cursor)
+			p.ClearScreen(vteparser.ClearModeAbove)
+			assertEqualBuf(t, p, tt.want)
+			if tt.history != "" {
+				assert.Equal(t, history, term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2]),
+					"the scrollback is untouched")
+			}
+			assert.Equal(t, tt.cursor, p.sync.buf.CursorAtScreen())
+		})
+	}
+}

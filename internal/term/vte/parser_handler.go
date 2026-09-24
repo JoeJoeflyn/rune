@@ -946,12 +946,9 @@ func (t *parserHandler) ClearScreen(mode vteparser.ClearMode) {
 		}
 
 	case vteparser.ClearModeAbove:
-		if pos.Y > 1 {
-			t.sync.buf.ResetLines(0, pos.Y)
-		}
-		start := 0
-		end := min(pos.X+1, columns)
-		t.sync.buf.ResetCells(start, end)
+		screenTop := pos.Y - t.sync.buf.CursorAtScreen().Y
+		t.sync.buf.ResetLines(screenTop, pos.Y)
+		t.sync.buf.ResetCells(0, min(pos.X+1, columns))
 
 	case vteparser.ClearModeAll:
 		if t.useAlt {
