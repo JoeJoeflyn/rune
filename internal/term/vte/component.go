@@ -521,6 +521,14 @@ func (t *Component) drawLocked(w term.Writer) {
 	screen := w
 	if t.parserHandler.modeReverseScreen {
 		screen = reverseScreenWriter{w}
+		// Without default attributes the buffers skip cells no program
+		// has written, which would otherwise stay in normal video.
+		blank := term.NewCell(0, 1, t.scroll.Attributes)
+		for y := range t.height {
+			for x := range t.width {
+				screen.SetCell(term.Coordinates{X: x, Y: y}, blank)
+			}
+		}
 	}
 	scrolledBy := 0
 	if t.parserHandler.useAlt {

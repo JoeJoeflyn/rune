@@ -1036,31 +1036,31 @@ func TestComponentReverseScreen(t *testing.T) {
 		{
 			desc:   "normal video",
 			input:  "ab\x1b[7mc\x1b[m",
-			want:   "nnrn\nnnnn",
+			want:   "nnrn\nnnnn\nnnnn",
 			report: "\x1b[?5;2$y",
 		},
 		{
 			desc:   "reverse video fills the screen and cancels SGR 7",
 			input:  "ab\x1b[7mc\x1b[m\x1b[?5h",
-			want:   "rrnr\nrrrr",
+			want:   "rrnr\nrrrr\nrrrr",
 			report: "\x1b[?5;1$y",
 		},
 		{
 			desc:   "reverse video applies to the alternate screen",
 			input:  "\x1b[?1049h\x1b[?5hab",
-			want:   "rrrr\nrrrr",
+			want:   "rrrr\nrrrr\nrrrr",
 			report: "\x1b[?5;1$y",
 		},
 		{
 			desc:   "reset restores normal video",
 			input:  "ab\x1b[7mc\x1b[m\x1b[?5h\x1b[?5l",
-			want:   "nnrn\nnnnn",
+			want:   "nnrn\nnnnn\nnnnn",
 			report: "\x1b[?5;2$y",
 		},
 		{
 			desc:   "RIS restores normal video",
 			input:  "\x1b[?5h\x1bcab",
-			want:   "nnnn\nnnnn",
+			want:   "nnnn\nnnnn\nnnnn",
 			report: "\x1b[?5;2$y",
 		},
 	}
@@ -1068,12 +1068,13 @@ func TestComponentReverseScreen(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
 
-			const width, height = 4, 2
+			// Without default attributes, as the default theme leaves
+			// them, a row in the middle of the screen is only drawn once
+			// written to, which a two-row screen would not show.
+			const width, height = 4, 3
 			comp, err := NewComponent(&testExecutor{}, &testExecutor{},
 				&mockTabManager{}, DefaultConfig())
 			require.NoError(t, err)
-			comp.SetDefaultAttributes(term.Attributes{
-				Fg: term.ColorWhite, Bg: term.ColorBlack})
 			require.NoError(t, comp.Resize(width, height))
 			comp.parser.AdvanceBytes([]byte(tc.input))
 
