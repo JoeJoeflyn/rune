@@ -803,19 +803,18 @@ func (t *parserHandler) InsertBlankLines(count int) {
 	defer t.sync.mu.Unlock()
 
 	start := t.sync.buf.CursorAtScreen().Y
-	if start >= t.sync.buf.TopScrollableRegion() && start < t.sync.buf.BottomScrollableRegion() {
-		if t.useAlt {
-			t.scrollDownAltRelative(start, count)
-		} else if bottom := t.sync.primBuf.BottomScrollableRegion(); bottom < t.height {
-			// Inside a region the lines pushed past the bottom margin
-			// are dropped; outside one the primary buffer keeps them by
-			// growing history instead.
-			screenTop := t.sync.primBuf.Rows() - t.height
-			t.sync.primBuf.ScrollDown(screenTop+start, screenTop+bottom, min(count, bottom-start))
-		} else {
-			t.sync.primBuf.InsertLinesCursor(count)
-		}
+	bottom := t.sync.buf.BottomScrollableRegion()
+	if start < t.sync.buf.TopScrollableRegion() || start >= bottom {
+		return
 	}
+	if t.useAlt {
+		t.scrollDownAltRelative(start, count)
+		return
+	}
+	// The rows pushed past the bottom margin are dropped, never saved
+	// to history (kitty screen_insert_lines, screen.c:1722).
+	screenTop := t.sync.primBuf.Rows() - t.height
+	t.sync.primBuf.ScrollDown(screenTop+start, screenTop+bottom, min(count, bottom-start))
 }
 
 // Delete `count` lines.
@@ -828,19 +827,16 @@ func (t *parserHandler) DeleteLines(count int) {
 	}
 
 	start := t.sync.buf.CursorAtScreen().Y
-	if start >= t.sync.buf.TopScrollableRegion() &&
-		start < t.sync.buf.BottomScrollableRegion() {
-		count = min(count, t.height-start)
-		if t.useAlt {
-			t.scrollUpAltRelative(start, count)
-		} else if bottom := t.sync.primBuf.BottomScrollableRegion(); bottom < t.height {
-			screenTop := t.sync.primBuf.Rows() - t.height
-			t.sync.primBuf.ScrollUp(screenTop+start, screenTop+bottom, min(count, bottom-start))
-		} else {
-			end := start + count - 1
-			t.sync.primBuf.ScrollUp(start, end, count)
-		}
+	bottom := t.sync.buf.BottomScrollableRegion()
+	if start < t.sync.buf.TopScrollableRegion() || start >= bottom {
+		return
 	}
+	if t.useAlt {
+		t.scrollUpAltRelative(start, min(count, t.height-start))
+		return
+	}
+	screenTop := t.sync.primBuf.Rows() - t.height
+	t.sync.primBuf.ScrollUp(screenTop+start, screenTop+bottom, min(count, bottom-start))
 }
 
 // Erase `count` chars in the current line following the cursor.

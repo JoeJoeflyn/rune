@@ -329,13 +329,6 @@ func (b *PrimaryBuffer) Dimensions() (width, height int) {
 	return
 }
 
-// InsertLinesCursor inserts blank lines on the cursor's position.
-func (b *PrimaryBuffer) InsertLinesCursor(count int) {
-	pos := b.CursorAtScroll()
-	pos.X = b.Cells.Columns(pos.Y)
-	b.InsertLines(count, pos)
-}
-
 // InsertLines inserts blank lines at the given position's line.
 func (b *PrimaryBuffer) InsertLines(count int, pos term.Coordinates) {
 	var builder strings.Builder

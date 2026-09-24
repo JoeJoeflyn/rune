@@ -172,6 +172,8 @@ func TestIntegrationParserHandler(t *testing.T) {
 			},
 		},
 		{
+			// The recorded sequence ends with DL on the row holding `e`,
+			// which zsh expects to vanish and the rows below to move up.
 			desc:      "primary delete lines (ctrl-r on plain zsh)",
 			altBuffer: false,
 			sut: func(t *testing.T, p *parserHandler, tm *mockTabManager, pty *workspacetest.File) {
@@ -204,7 +206,7 @@ func TestIntegrationParserHandler(t *testing.T) {
 				p.CarriageReturn()
 				p.DeleteLines(1)
 
-				assertEqualBuf(t, p, "b    \nc    \n2   Z\ne    \n1    ")
+				assertEqualBuf(t, p, "b    \nc    \n2   Z\n1    \n     ")
 			},
 		},
 		{
@@ -1843,6 +1845,67 @@ func TestEraseAboveKeepsScrollback(t *testing.T) {
 					"the scrollback is untouched")
 			}
 			assert.Equal(t, tt.cursor, p.sync.buf.CursorAtScreen())
+		})
+	}
+}
+
+// TestInsertDeleteLinesOnPrimaryScreen covers IL and DL on the primary
+// screen without a region. Both rotate the rows from the cursor to the
+// bottom of the screen; neither touches the scrollback or saves the
+// rows it pushes out (kitty screen_insert_lines and
+// screen_delete_lines, screen.c:1722, :1739).
+func TestInsertDeleteLinesOnPrimaryScreen(t *testing.T) {
+	tests := []struct {
+		name   string
+		cursor term.Coordinates
+		input  func(p *parserHandler)
+		want   string
+	}{
+		{
+			name:   "delete one line",
+			cursor: term.Coordinates{X: 2, Y: 1},
+			input:  func(p *parserHandler) { p.DeleteLines(1) },
+			want:   "aaaa\ncccc\ndddd\neeee\n    ",
+		},
+		{
+			name:   "delete two lines",
+			cursor: term.Coordinates{Y: 1},
+			input:  func(p *parserHandler) { p.DeleteLines(2) },
+			want:   "aaaa\ndddd\neeee\n    \n    ",
+		},
+		{
+			name:   "delete past the bottom clears to the bottom",
+			cursor: term.Coordinates{Y: 3},
+			input:  func(p *parserHandler) { p.DeleteLines(10) },
+			want:   "aaaa\nbbbb\ncccc\n    \n    ",
+		},
+		{
+			name:   "insert one line",
+			cursor: term.Coordinates{X: 2, Y: 1},
+			input:  func(p *parserHandler) { p.InsertBlankLines(1) },
+			want:   "aaaa\n    \nbbbb\ncccc\ndddd",
+		},
+		{
+			name:   "insert past the bottom clears to the bottom",
+			cursor: term.Coordinates{Y: 1},
+			input:  func(p *parserHandler) { p.InsertBlankLines(10) },
+			want:   "aaaa\n    \n    \n    \n    ",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newInputParserHandler(t, false)
+			p.Resize(4, 5)
+			writeToBuffer(p, "h1\nh2\naaaa\nbbbb\ncccc\ndddd\neeee")
+			rows := p.sync.primBuf.Rows()
+			history := term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2])
+			p.setCursorAtScreen(tt.cursor)
+			tt.input(p)
+			assertEqualBuf(t, p, tt.want)
+			assert.Equal(t, rows, p.sync.primBuf.Rows(), "the scrollback neither grows nor shrinks")
+			assert.Equal(t, history, term.CellsToString(p.sync.primBuf.Cells.RawCells()[:2]),
+				"the scrollback is untouched")
+			assert.Equal(t, tt.cursor, p.sync.buf.CursorAtScreen(), "the cursor stays put")
 		})
 	}
 }
