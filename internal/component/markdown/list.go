@@ -251,12 +251,9 @@ func (l *listBlock) charAtIndent(x, y, indent int) (rune, bool) {
 
 		if y >= currentY && y < currentY+lineCount {
 			lineIdx := y - currentY
-			bullet := l.getBullet(i, item)
-			if lineIdx == 0 && x >= indent && x < indent+len(bullet) {
-				bulletIdx := x - indent
-				if bulletIdx < len(bullet) {
-					return rune(bullet[bulletIdx]), true
-				}
+			if lineIdx == 0 && x >= indent && x < indent+listIndent {
+				bullet := textRun{{text: l.getBullet(i, item)}}
+				return charAtInLine(bullet, x-indent)
 			}
 			if lineIdx < len(lines) {
 				adjustedX := x - indent - listIndent
