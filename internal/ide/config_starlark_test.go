@@ -702,6 +702,49 @@ config["extensions"]["git"]["config"]["nested"]["override"] = "star"
 	assert.Equal(t, "star", override)
 }
 
+// TestHelixPresetLoads loads the shipped helix preset over rune.star, as a
+// first run does, and pins that its Helix typable command aliases and key
+// spellings reach the command layer without config errors.
+func TestHelixPresetLoads(t *testing.T) {
+	preset, err := os.ReadFile("../../cmd/rune/preset_helix.yaml")
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, preset, 0o644))
+	var cfg ideConfig
+	require.NoError(t, loadConfig(&cfg, path, browser.NopWallpaper(),
+		DefaultConfig{src: string(readRuneStar(t)), modal: true},
+		term.RingBell, term.ScheduleNextTick, ""))
+
+	aliases, err := cfg.parseAliasCommands()
+	require.NoError(t, err)
+	for alias, cmds := range map[string][]string{
+		"q":   {"windowclose"},
+		"wq":  {"write", "windowclose"},
+		"qa!": {"forcequit!"},
+		"o":   {"edit"},
+		"vs":  {"windownew right"},
+	} {
+		assert.Equalf(t, cmds, aliases[alias].Commands, "alias %s", alias)
+	}
+	helixAliases := []string{
+		"q", "wq", "x", "qa", "qa!", "wa", "o", "bc", "bca", "bn", "bp",
+		"vs", "hs", "sp", "rl",
+	}
+	for _, alias := range helixAliases {
+		require.Containsf(t, aliases, alias, "alias %s", alias)
+		for _, cmd := range aliases[alias].Commands {
+			name := strings.Fields(cmd)[0]
+			_, ok := exCommands[name]
+			assert.Truef(t, ok, "alias %s runs unknown command %q", alias, name)
+		}
+	}
+
+	seq, err := handler.ParseSequence("<ctrl-w><ctrl-h>")
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"windowfocus", "left"}}, cfg.commandKeyMappings()[seq])
+	assert.Empty(t, cfg.errors)
+}
+
 func TestLoadWorkspaceConfigYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

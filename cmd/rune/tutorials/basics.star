@@ -16,6 +16,11 @@
 
 ck = command_key()
 mode = editor_mode()
+# Helix is modal too: every surface has NORMAL and INSERT modes, the
+# prompt sits on the same key, and motion is on the home row. Only the
+# picker keys differ, so copy about modality branches on this and copy
+# about keys branches on the mode itself.
+modal_mode = mode == "modal" or mode == "helix"
 # The config file moves with the data directory (`rune -d`), so copy
 # that names it has to ask the host instead of assuming ~/.rune.
 config_file = config_path()
@@ -23,12 +28,19 @@ config_file_ref = ("(`" + config_file + "`)") if config_file else ""
 
 # Buffer motion and layout direction are separate systems. The file explorer
 # uses each editor's native movement, while layout commands use HJKL in modal
-# mode, IJKL in standard mode, and PNBF in Emacs mode.
+# and helix mode, IJKL in standard mode, and PNBF in Emacs mode.
 if mode == "modal":
     dir_phrase = "the home row, `h` `j` `k` `l`"
     completer_pick_phrase = "`<ctrl-j>` / `<ctrl-k>` (or `<up>` / `<down>`)"
     completer_move_phrase = ("press `<ctrl-j>` to move down the list and " +
                              "`<ctrl-k>` to move up (or `<down>` / `<up>`)")
+elif mode == "helix":
+    # Helix's own pickers walk their list with <ctrl-n> / <ctrl-p>, and
+    # Rune's completers answer to the same pair.
+    dir_phrase = "the home row, `h` `j` `k` `l`"
+    completer_pick_phrase = "`<ctrl-n>` / `<ctrl-p>` (or `<up>` / `<down>`)"
+    completer_move_phrase = ("press `<ctrl-n>` to move down the list and " +
+                             "`<ctrl-p>` to move up (or `<down>` / `<up>`)")
 elif mode == "emacs":
     dir_phrase = "the motion keys `<ctrl-p>` / `<ctrl-n>` or the arrow keys"
     completer_pick_phrase = "`<ctrl-p>` / `<ctrl-n>` (or `<up>` / `<down>`)"
@@ -152,6 +164,23 @@ Rune carries that same HJKL language into layout management: `H` points left,
 - Add `<shift>` to move content instead of focus it. `<meta>` + `<shift>` +
   HJKL moves the focused window's content; `<alt>` + `<shift>` + H/L moves
   the current tab left or right in the tab list.
+"""
+elif mode == "helix":
+    layout_pattern_md = """\
+## HJKL controls the layout
+
+Helix's keyboard-first design keeps navigation under your fingers. Repeated
+actions become muscle memory, so you spend less time searching for interface
+controls and can keep your attention on the work.
+
+Rune carries that same HJKL language into layout management: `H` points left,
+`J` down, `K` up, and `L` right.
+
+- Hold `<meta>` with `h` `j` `k` `l` to focus a window in that direction.
+- Hold `<alt>` with `h` or `l` to focus the previous or next tab.
+- Add `<shift>` to move the content instead of focus it:
+  - `<shift-meta>` + `h` `j` `k` `l` moves the focused window's content.
+  - `<shift-alt>` + `h` or `l` moves the current tab left or right in the tab list.
 """
 elif mode == "emacs":
     layout_pattern_md = """\
@@ -305,7 +334,7 @@ Open a terminal here: """ + keypress("terminalneworsplit") + """.
 """
 
 modal_surfaces_md = """\
-You picked **modal** editor mode, and in modal mode every input surface
+You picked **""" + mode + """** editor mode, and in """ + mode + """ mode every input surface
 is modal, not just the editor. This includes the terminal, Rune's
 console, and the file explorer 🚀
 
@@ -416,16 +445,20 @@ tabs_intro_md = ("""\
 A window shows one **tab** at a time: a file, a terminal, task output or agent. Emacs
 mode keeps tab lifecycle on Rune's host Meta layer: """ + keylabel("tabnew") + """ starts a
 new tab and """ + keylabel("tabclose") + """ closes the current one.
-""" if mode == "emacs" else """\
+""" if mode == "emacs" else ("""\
+A window shows one **tab** at a time: a file, a terminal, task output. Helix's
+`<space>` leader menu is here too: `<space>e` toggles the file explorer, the
+way `file_explorer` does in Helix.
+""" if mode == "helix" else """\
 A window shows one **tab** at a time: a file, a terminal, task output.
-""")
+"""))
 
 # A focused terminal in INSERT mode answers <shift-tab> itself, so the
 # binding never reaches Rune from there.
 shift_tab_note = ("""
 > If the window in focus is a terminal, it takes `<shift-tab>` before
 > Rune sees it: press `<esc>` to go back to NORMAL mode first.
-""" if mode == "modal" and "shift-tab" in key_for("fexplorer") else "")
+""" if modal_mode and "shift-tab" in key_for("fexplorer") else "")
 
 tabs_md = tabs_intro_md + """
 You already have one open. Let's add another from the file explorer.
@@ -619,7 +652,7 @@ def teach_split_horizontal():
     # A terminal is focused at this point, so modal users first need to
     # know how to reach the command prompt from it.
     text = split_horizontal_md
-    if mode == "modal":
+    if modal_mode:
         text = modal_surfaces_md + "\n" + split_horizontal_md
     wait_expected_command(
         title         = "Aim the next split",
@@ -842,4 +875,4 @@ def run():
     teach_cheatsheet()
 
 
-tutorial(id = "basics", title = "Rune basics", version = "70", entry = run)
+tutorial(id = "basics", title = "Rune basics", version = "71", entry = run)

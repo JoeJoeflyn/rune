@@ -1710,6 +1710,26 @@ func TestJumplist(t *testing.T) {
 		assert.False(t, handled)
 	})
 
+	// The helix preset binds both keys to Rune's cursor history, which
+	// only sees them when the editor declines them.
+	t.Run("both ends of the jumplist are unhandled", func(t *testing.T) {
+		hx, _, _ := newHelix(t, "a\nb\nc\nd\ne", term.Coordinates{})
+		send(t, hx, modKey(term.ModCtrl, 's'))
+		send(t, hx, keys("3j")...)
+
+		_, handled := hx.Handle(modKey(term.ModCtrl, 'o'))
+		require.True(t, handled)
+		_, handled = hx.Handle(modKey(term.ModCtrl, 'o'))
+		assert.False(t, handled, "ctrl-o past the oldest jump")
+		assert.Equal(t, term.Coordinates{}, hx.CursorAtScroll())
+
+		_, handled = hx.Handle(modKey(term.ModCtrl, 'i'))
+		require.True(t, handled)
+		_, handled = hx.Handle(modKey(term.ModCtrl, 'i'))
+		assert.False(t, handled, "ctrl-i at the newest jump")
+		assert.Equal(t, term.Coordinates{Y: 3}, hx.CursorAtScroll())
+	})
+
 	t.Run("gg and ge push a jump", func(t *testing.T) {
 		hx, _, _ := newHelix(t, "a\nb\nc\nd", term.Coordinates{Y: 2})
 		send(t, hx, keys("gg")...)

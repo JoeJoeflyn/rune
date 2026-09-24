@@ -78,33 +78,7 @@ func TestBasicsTutorialParses(t *testing.T) {
 
 	assert.Equal(t, "basics", tut.ID())
 	assert.Equal(t, "Rune basics", tut.Title())
-	assert.Equal(t, "70", tut.Version())
-}
-
-// TestBasicsTutorialParsesModalMode asserts the embedded basics
-// tutorial also parses under modal editor mode, exercising the
-// modal-only branches (e.g. the modal-surfaces step).
-func TestBasicsTutorialParsesModalMode(t *testing.T) {
-	t.Parallel()
-
-	tut, err := starlarktutorial.New(
-		"basics", basicsTutorial,
-		idetutorial.PromptStyle{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		term.KeyComb{Ch: ':'},
-		"modal", "",
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, tut)
-	assert.Equal(t, "70", tut.Version())
+	assert.Equal(t, "71", tut.Version())
 }
 
 // TestBasicsTutorialWorkspaceOpenCopyByOS asserts the welcome window's
@@ -214,6 +188,11 @@ func TestBasicsTutorialCompleterKeysByMode(t *testing.T) {
 			forbidden: []string{"<ctrl-i>", "<ctrl-k>"},
 		},
 		{mode: "emacs", expected: []string{"<ctrl-p>", "<ctrl-n>", "<up>", "<down>"}},
+		{
+			mode:      "helix",
+			expected:  []string{"<ctrl-p>", "<ctrl-n>", "<up>", "<down>"},
+			forbidden: []string{"<ctrl-j>", "<ctrl-k>"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
@@ -261,7 +240,7 @@ tutorial(entry=run)
 func TestBasicsTutorialWarnsAboutTheSwallowedShiftTab(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{"modal", "standard", "emacs"} {
+	for _, mode := range []string{"modal", "helix", "standard", "emacs"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			src := withoutTutorialCall(t, basicsTutorial) + `
@@ -290,7 +269,7 @@ tutorial(entry=run)
 
 			text := tut.ActiveText()
 			require.Contains(t, text, "<shift-tab>")
-			if mode == "modal" {
+			if mode == "modal" || mode == "helix" {
 				assert.Contains(t, text, "NORMAL mode")
 				return
 			}
@@ -407,6 +386,18 @@ tutorial(entry=run)
 	}
 }
 
+// hjklLayoutList is the helix lesson's layout key list;
+// TestBasicsTutorialHelixKeysMatchPreset pins it against the helix preset.
+var hjklLayoutList = []string{
+	"HJKL controls the layout",
+	"H points left, J down, K up, and L right",
+	"Hold <meta> with h j k l to focus a window in that direction",
+	"Hold <alt> with h or l to focus the previous or next tab",
+	"Add <shift> to move the content instead of focus it",
+	"<shift-meta> + h j k l moves the focused window's content",
+	"<shift-alt> + h or l moves the current tab left or right in the tab list",
+}
+
 func TestBasicsTutorialLayoutIntro(t *testing.T) {
 	t.Parallel()
 
@@ -424,6 +415,11 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 				"Hold <alt> and press H/L",
 				"Add <shift> to move content instead of focus it",
 			},
+		},
+		{
+			name:     "helix",
+			mode:     "helix",
+			contains: hjklLayoutList,
 		},
 		{
 			name: "emacs",
@@ -516,6 +512,12 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 				assert.Contains(t, rendered, expected)
 			}
 			assert.NotContains(t, rendered, "standard and Emacs")
+			if tt.mode != "modal" && tt.mode != "helix" {
+				assert.NotContains(t, rendered, "Hold <alt> with h or l",
+					"only the vim and helix presets bind the <alt> tab pair")
+			}
+			assert.NotContains(t, rendered, "<ctrl-w>",
+				"a focused terminal swallows <ctrl-w>, so the lesson teaches <meta>")
 			assert.Contains(t, rendered, "Split the focused window in two")
 		})
 	}
@@ -578,6 +580,145 @@ func TestBasicsTutorialHasNoHardcodedCommandKeys(t *testing.T) {
 	} {
 		assert.NotContainsf(t, basicsTutorial, key,
 			"command key %s must be resolved through key_for", key)
+	}
+}
+
+// TestBasicsTutorialHelixKeysMatchPreset pins the keys the basics
+// tutorial spells out literally against the presets that bind them: the
+// HJKL layout chords shared by the vim and helix lessons, and Helix's
+// <space>e leader key, which key_for cannot name because <shift-tab> also
+// runs fexplorer.
+func TestBasicsTutorialHelixKeysMatchPreset(t *testing.T) {
+	t.Parallel()
+
+	layout := map[string]string{
+		`"<meta-h>"`:       `"windowfocus left"`,
+		`"<meta-j>"`:       `"windowfocus down"`,
+		`"<meta-k>"`:       `"windowfocus up"`,
+		`"<meta-l>"`:       `"windowfocus right"`,
+		`"<alt-h>"`:        `"tabprevious"`,
+		`"<alt-l>"`:        `"tabnext"`,
+		`"<shift-meta-h>"`: `"windowmove left"`,
+		`"<shift-meta-j>"`: `"windowmove down"`,
+		`"<shift-meta-k>"`: `"windowmove up"`,
+		`"<shift-meta-l>"`: `"windowmove right"`,
+		`"<alt-shift-h>"`:  `"tabmove left"`,
+		`"<alt-shift-l>"`:  `"tabmove right"`,
+	}
+	for preset, body := range map[string]string{
+		"vim": presetModalYAML, "helix": presetHelixYAML,
+	} {
+		for key, command := range layout {
+			assert.Containsf(t, body, key+": "+command,
+				"the %s preset must bind %s to %s as the tutorial teaches",
+				preset, key, command)
+		}
+	}
+	assert.Contains(t, presetHelixYAML, `"<space>e": fexplorer`)
+
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{mode: "helix", want: true},
+		{mode: "modal", want: false},
+		{mode: "standard", want: false},
+		{mode: "emacs", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, basicsTutorial) + `
+def run():
+    wait_event(event = "open", text = layout_pattern_md + tabs_intro_md)
+tutorial(entry=run)
+`
+			tut, err := starlarktutorial.New(
+				"basics-helix-keys", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, "",
+				nil, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			t.Cleanup(tut.Stop)
+			require.True(t, tut.WaitActive("wait_event", time.Second))
+
+			text := tut.ActiveText()
+			if tt.want {
+				assert.Contains(t, text, "<space>e")
+				return
+			}
+			assert.NotContains(t, text, "<space>e",
+				"only the helix preset binds Helix's leader menu")
+		})
+	}
+}
+
+// TestBasicsTutorialModalSurfacesNote asserts the split-direction step,
+// which arms while a terminal is focused, first tells users of a modal
+// editor how to leave INSERT mode, and names the mode they picked.
+func TestBasicsTutorialModalSurfacesNote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mode      string
+		contains  []string
+		forbidden []string
+	}{
+		{
+			mode: "modal",
+			contains: []string{
+				"You picked **modal** editor mode",
+				"in modal mode every input surface is modal",
+				"switch back to NORMAL mode with `<esc>`",
+			},
+		},
+		{
+			mode: "helix",
+			contains: []string{
+				"You picked **helix** editor mode",
+				"in helix mode every input surface is modal",
+				"switch back to NORMAL mode with `<esc>`",
+			},
+			forbidden: []string{"**modal** editor mode"},
+		},
+		{mode: "standard", forbidden: []string{"You picked", "NORMAL mode"}},
+		{mode: "emacs", forbidden: []string{"You picked", "NORMAL mode"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, basicsTutorial) + `
+def run():
+    teach_split_horizontal()
+tutorial(entry=run)
+`
+			tut, err := starlarktutorial.New(
+				"basics-modal-surfaces", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, "",
+				nil, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			t.Cleanup(tut.Stop)
+			require.True(t, tut.WaitActive("wait_command", time.Second))
+			assert.Equal(t, "Aim the next split", tut.ActiveTitle())
+
+			text := strings.Join(strings.Fields(tut.ActiveText()), " ")
+			assert.Contains(t, text, "Flip the split direction")
+			for _, want := range tt.contains {
+				assert.Contains(t, text, want)
+			}
+			for _, forbidden := range tt.forbidden {
+				assert.NotContains(t, text, forbidden)
+			}
+		})
 	}
 }
 
@@ -1061,6 +1202,57 @@ func TestAgentTutorialInstallAndHelpFlow(t *testing.T) {
 		"reaching a milestone must not raise a notification")
 }
 
+// TestAgentTutorialLeavesInsertModeFirst asserts the step that opens
+// the agent from a focused console tells users of a modal editor to
+// leave INSERT mode before the command key, and numbers the steps
+// after it accordingly.
+func TestAgentTutorialLeavesInsertModeFirst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mode string
+		esc  bool
+	}{
+		{mode: "modal", esc: true},
+		{mode: "helix", esc: true},
+		{mode: "standard", esc: false},
+		{mode: "emacs", esc: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, agentTutorial) + `
+def run():
+    wait_command(command = "agent", text = agent_open_md)
+tutorial(entry=run)
+`
+			tut, err := starlarktutorial.New(
+				"agent-esc", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, "",
+				nil, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			t.Cleanup(tut.Stop)
+			require.True(t, tut.WaitActive("wait_command", time.Second))
+
+			text := tut.ActiveText()
+			if tt.esc {
+				assert.Contains(t, text, "1. Press `<esc>` to go back to NORMAL mode.")
+				assert.Contains(t, text, "2. Press `:` to open the command prompt.")
+				assert.Contains(t, text, "3. Run `agent`.")
+				return
+			}
+			assert.NotContains(t, text, "<esc>")
+			assert.Contains(t, text, "1. Press `:` to open the command prompt.")
+			assert.Contains(t, text, "2. Run `agent`.")
+		})
+	}
+}
+
 func TestTutorialPackageInstallOwnership(t *testing.T) {
 	t.Parallel()
 	// The basics tutorial installs nothing and never sends the user to
@@ -1279,6 +1471,12 @@ func TestNavigationTutorialPrefillKeysMatchPresets(t *testing.T) {
 			defKey:  "<alt-shift-d>",
 			preset:  presetStandardYAML,
 		},
+		{
+			mode:    "helix",
+			jumpKey: "<space>s",
+			defKey:  "<shift-meta-d>",
+			preset:  presetHelixYAML,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
@@ -1328,6 +1526,12 @@ func TestNavigationTutorialFinderPickerKeysByMode(t *testing.T) {
 			forbidden: []string{"<ctrl-i>", "<ctrl-k>"},
 		},
 		{mode: "emacs", up: "<ctrl-p>", down: "<ctrl-n>"},
+		{
+			mode:      "helix",
+			up:        "<ctrl-p>",
+			down:      "<ctrl-n>",
+			forbidden: []string{"<ctrl-j>", "<ctrl-k>"},
+		},
 	}
 	// Every screen that asks the user to walk a completion list has to
 	// name that preset's own bindings.
@@ -1368,6 +1572,99 @@ tutorial(entry=run)
 			})
 		}
 	}
+}
+
+// TestNavigationTutorialWarnsAboutTheSwallowedSpaceLeader asserts the
+// file-finder step tells helix users why the <space> leader does nothing
+// from a terminal, and that no other binding carries the warning.
+func TestNavigationTutorialWarnsAboutTheSwallowedSpaceLeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mode string
+		key  string
+		want bool
+	}{
+		{mode: "helix", key: "<space>f", want: true},
+		{mode: "helix", key: "<meta-o>"},
+		{mode: "standard", key: "<meta-o>"},
+		{mode: "emacs", key: "<ctrl-x><ctrl-f>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode+"/"+tt.key, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, navigationTutorial) + `
+def run():
+    wait_command(command = "searchfile", text = searchfile_md)
+tutorial(entry=run)
+`
+			keyFor := func(cmd string, _ []string) string {
+				if cmd == "searchfile" {
+					return tt.key
+				}
+				return ""
+			}
+			tut, err := starlarktutorial.New(
+				"navigation-space-leader", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, "",
+				keyFor, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			t.Cleanup(tut.Stop)
+			require.True(t, tut.WaitActive("wait_command", time.Second))
+
+			text := tut.ActiveText()
+			require.Contains(t, text, tt.key)
+			if tt.want {
+				assert.Contains(t, text, "NORMAL mode")
+				return
+			}
+			assert.NotContains(t, text, "NORMAL mode")
+		})
+	}
+}
+
+// TestNavigationTutorialUnboundCommandsKeepTheirArguments asserts the
+// prompt fallback for an unbound command names the whole command line.
+// A user may unbind any `cursorhistory` subcommand, and a fallback that
+// dropped the argument would send the user to run a different command.
+func TestNavigationTutorialUnboundCommandsKeepTheirArguments(t *testing.T) {
+	t.Parallel()
+
+	keyFor := func(cmd string, args []string) string {
+		if cmd == "cursorhistory" && len(args) == 1 && args[0] == "prev" {
+			return "<ctrl-o>"
+		}
+		return ""
+	}
+	src := withoutTutorialCall(t, navigationTutorial) + `
+def run():
+    wait_event(event = "open", text = cursorhistory_md + cursorhistory_next_md)
+tutorial(entry=run)
+`
+	tut, err := starlarktutorial.New(
+		"navigation-unbound", src,
+		idetutorial.PromptStyle{}, nil, nil, nil,
+		nil, nil,
+		term.KeyComb{Ch: ':'}, "helix", "",
+		keyFor, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	tut.Resize(80, 24)
+	tut.Reset()
+	t.Cleanup(tut.Stop)
+	require.True(t, tut.WaitActive("wait_event", time.Second))
+
+	text := tut.ActiveText()
+	assert.Contains(t, text, "Go back to where you jumped from: press `<ctrl-o>`.")
+	assert.Contains(t, text,
+		"Go forward again: open the command prompt (`:`) and run `cursorhistory next`.")
+	assert.Contains(t, text, "several stops at once: `cursorhistory jump`.")
+	assert.NotContains(t, text, "run `cursorhistory`.")
 }
 
 // TestNavigationTutorialInstallsFuzzySearchFirst asserts that when the
@@ -1498,7 +1795,7 @@ func TestNavigationTutorialParses(t *testing.T) {
 
 	assert.Equal(t, "navigation", tut.ID())
 	assert.Equal(t, "Navigate code", tut.Title())
-	assert.Equal(t, "26", tut.Version())
+	assert.Equal(t, "27", tut.Version())
 }
 
 func TestAgentTutorialParses(t *testing.T) {
@@ -1518,7 +1815,7 @@ func TestAgentTutorialParses(t *testing.T) {
 	require.NotNil(t, tut)
 	assert.Equal(t, "agent", tut.ID())
 	assert.Equal(t, "Rune Agent", tut.Title())
-	assert.Equal(t, "12", tut.Version())
+	assert.Equal(t, "13", tut.Version())
 }
 
 func TestEmbeddedTutorialPlaylist(t *testing.T) {
@@ -1540,81 +1837,35 @@ func TestEmbeddedTutorialPlaylist(t *testing.T) {
 	assert.NotEmpty(t, embeddedTutorialOptions())
 }
 
-// TestNavigationTutorialParsesModalMode asserts the embedded navigation
-// tutorial also parses under modal editor mode.
-func TestNavigationTutorialParsesModalMode(t *testing.T) {
+// TestShippedTutorialsParseInEveryMode asserts every embedded tutorial
+// parses under each editor mode editor_mode() can report, so a branch
+// only one mode reaches cannot ship broken.
+func TestShippedTutorialsParseInEveryMode(t *testing.T) {
 	t.Parallel()
 
-	tut, err := starlarktutorial.New(
-		"navigation", navigationTutorial,
-		idetutorial.PromptStyle{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		term.KeyComb{Ch: ':'},
-		"modal", "",
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, tut)
-	assert.Equal(t, "26", tut.Version())
-}
-
-// TestNavigationTutorialParsesEmacsMode asserts the embedded navigation
-// tutorial also parses under the emacs editor mode.
-func TestNavigationTutorialParsesEmacsMode(t *testing.T) {
-	t.Parallel()
-
-	tut, err := starlarktutorial.New(
-		"navigation", navigationTutorial,
-		idetutorial.PromptStyle{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		term.KeyComb{Ch: ':'},
-		"emacs", "",
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, tut)
-	assert.Equal(t, "26", tut.Version())
-}
-
-// TestBasicsTutorialParsesEmacsMode asserts the embedded basics tutorial
-// also parses under the emacs editor mode, exercising the emacs branch of
-// the direction-phrasing logic (IJKL layout, GNU-Emacs buffer motion keys,
-// arrow-key completer).
-func TestBasicsTutorialParsesEmacsMode(t *testing.T) {
-	t.Parallel()
-
-	tut, err := starlarktutorial.New(
-		"basics", basicsTutorial,
-		idetutorial.PromptStyle{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		term.KeyComb{Ch: ':'},
-		"emacs", "",
-		nil,
-		nil,
-		nil,
-		nil,
-	)
-	require.NoError(t, err)
-	require.NotNil(t, tut)
-	assert.Equal(t, "70", tut.Version())
+	versions := map[string]string{
+		"basics":     "71",
+		"navigation": "27",
+		"agent":      "13",
+	}
+	for name, src := range shippedTutorials() {
+		for _, mode := range []string{"modal", "helix", "standard", "emacs"} {
+			t.Run(name+"/"+mode, func(t *testing.T) {
+				t.Parallel()
+				tut, err := starlarktutorial.New(
+					name, src,
+					idetutorial.PromptStyle{}, nil, nil, nil,
+					nil, nil,
+					term.KeyComb{Ch: ':'}, mode, "",
+					nil, nil, nil, nil,
+				)
+				require.NoError(t, err)
+				require.NotNil(t, tut)
+				assert.Equal(t, name, tut.ID())
+				assert.Equal(t, versions[name], tut.Version())
+			})
+		}
+	}
 }
 
 // TestShippedWaitCommandsCarryTheirLesson guards the shape of a

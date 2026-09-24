@@ -88,8 +88,9 @@ type Tutorial struct {
 	// spec.
 	commandKeyDisplay string
 	// editorMode is the user's resolved editor mode ("modal",
-	// "standard", or "emacs"), exposed to the DSL via editor_mode(). exo is
-	// resolved to its fallback by the host before New.
+	// "helix", "standard", or "emacs"), exposed to the DSL via
+	// editor_mode(). exo is resolved to its fallback by the host before
+	// New.
 	editorMode string
 	// os is the host operating system (runtime.GOOS), exposed to the
 	// DSL via os(). Tutorials branch on it to teach OS-specific flows
