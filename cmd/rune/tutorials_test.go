@@ -386,8 +386,8 @@ tutorial(entry=run)
 	}
 }
 
-// hjklLayoutList is the helix lesson's layout key list;
-// TestBasicsTutorialHelixKeysMatchPreset pins it against the helix preset.
+// hjklLayoutList is the layout key list the vim and helix lessons share;
+// TestBasicsTutorialHelixKeysMatchPreset pins it against both presets.
 var hjklLayoutList = []string{
 	"HJKL controls the layout",
 	"H points left, J down, K up, and L right",
@@ -407,14 +407,9 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 		contains []string
 	}{
 		{
-			name: "vim",
-			mode: "vim",
-			contains: []string{
-				"HJKL controls the layout",
-				"Hold <meta> and press HJKL",
-				"Hold <alt> and press H/L",
-				"Add <shift> to move content instead of focus it",
-			},
+			name:     "vim",
+			mode:     "vim",
+			contains: hjklLayoutList,
 		},
 		{
 			name:     "helix",
@@ -431,12 +426,15 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 				"add <shift> to move window content instead",
 				"Reusing that muscle memory keeps repeated layout actions fast",
 				"host Meta layer stays reachable from terminals",
-				"<shift-meta-w> closes a window, <meta-k> closes the others",
-				"<meta-d> / <meta-r> split below or right",
-				"<meta-e> toggles maximization",
-				"<meta-w> closes a tab; adding <shift> escalates",
-				"<meta-[> / <meta-]> cycle tabs",
-				"<shift-meta-[> / <shift-meta-]> reorder the current tab",
+				"Hold <meta> and press P/N/B/F to focus a window in that direction",
+				"Press <meta-[> / <meta-]> to focus the previous or next tab",
+				"Add <shift> to move the content instead of focus it",
+				"<shift-meta> + P/N/B/F moves the focused window's content",
+				"<shift-meta-[> / <shift-meta-]> moves the current tab left or right",
+				"Manage windows:",
+				"<meta-d> / <meta-r> splits below or right",
+				"<meta-k> closes a window, and <shift-meta-k> closes the others",
+				"<meta-m> toggles maximization",
 			},
 		},
 		{
@@ -472,9 +470,9 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 				if tt.mode == "emacs" {
 					keys["windownew down"] = "<meta-d>"
 					keys["windownew right"] = "<meta-r>"
-					keys["windowclose"] = "<shift-meta-w>"
-					keys["windowcloseall"] = "<meta-k>"
-					keys["windowtogglemaximize"] = "<meta-e>"
+					keys["windowclose"] = "<meta-k>"
+					keys["windowcloseall"] = "<shift-meta-k>"
+					keys["windowtogglemaximize"] = "<meta-m>"
 					keys["tabclose"] = "<meta-w>"
 					keys["tabprevious"] = "<meta-[>"
 					keys["tabnext"] = "<meta-]>"

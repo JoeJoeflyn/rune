@@ -159,11 +159,11 @@ controls and can keep your attention on the work.
 Rune carries that same HJKL language into layout management: `H` points left,
 `J` down, `K` up, and `L` right.
 
-- Hold `<meta>` and press HJKL to focus a window in that direction.
-- Hold `<alt>` and press H/L to focus the previous or next tab.
-- Add `<shift>` to move content instead of focus it. `<meta>` + `<shift>` +
-  HJKL moves the focused window's content; `<alt>` + `<shift>` + H/L moves
-  the current tab left or right in the tab list.
+- Hold `<meta>` with `h` `j` `k` `l` to focus a window in that direction.
+- Hold `<alt>` with `h` or `l` to focus the previous or next tab.
+- Add `<shift>` to move the content instead of focus it:
+  - `<shift-meta>` + `h` `j` `k` `l` moves the focused window's content.
+  - `<shift-alt>` + `h` or `l` moves the current tab left or right in the tab list.
 """
 elif mode == "helix":
     layout_pattern_md = """\
@@ -192,12 +192,15 @@ hold `<meta>` with the same PNBF directions to focus windows, then add `<shift>`
 to move window content instead. Reusing that muscle memory keeps repeated
 layout actions fast, and the host Meta layer stays reachable from terminals.
 
-- """ + keylabel("windowclose") + """ closes a window, """ + keylabel("windowcloseall") + """ closes the others,
-  """ + keylabel("windownew", "down") + """ / """ + keylabel("windownew", "right") + """ split below or right, and
-  """ + keylabel("windowtogglemaximize") + """ toggles maximization.
-- """ + keylabel("tabclose") + """ closes a tab; adding `<shift>` escalates from the tab to the whole window.
-- """ + keylabel("tabprevious") + """ / """ + keylabel("tabnext") + """ cycle tabs, while
-  """ + keylabel("tabmove", "left") + """ / """ + keylabel("tabmove", "right") + """ reorder the current tab.
+- Hold `<meta>` and press P/N/B/F to focus a window in that direction.
+- Press """ + keylabel("tabprevious") + """ / """ + keylabel("tabnext") + """ to focus the previous or next tab.
+- Add `<shift>` to move the content instead of focus it:
+  - `<shift-meta>` + P/N/B/F moves the focused window's content.
+  - """ + keylabel("tabmove", "left") + """ / """ + keylabel("tabmove", "right") + """ moves the current tab left or right in the tab list.
+- Manage windows:
+  - """ + keylabel("windownew", "down") + """ / """ + keylabel("windownew", "right") + """ splits below or right.
+  - """ + keylabel("windowclose") + """ closes a window, and """ + keylabel("windowcloseall") + """ closes the others.
+  - """ + keylabel("windowtogglemaximize") + """ toggles maximization.
 """
 else:
     layout_pattern_md = """\
