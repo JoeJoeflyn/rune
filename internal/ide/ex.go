@@ -208,6 +208,7 @@ type ex struct {
 	fileExplorerHandler *fileExplorerHandler
 	sched               func(func()) bool
 	flusher             *flusher
+	pendingTabs         *pendingTabOpener
 	debugCommands       bool
 	commandObserver     commandObserver
 	consoleCfg          consoleConfig
@@ -340,6 +341,9 @@ func (e *ex) init(
 		return
 	}
 	e.editorObserver = newCommandRegisterObserver(&e.comp)
+	e.pendingTabs = newPendingTabOpener(e.bgCtx, &e.comp, e.notifications,
+		e.sched, extensionHandleWait)
+	e.editorObserver.onResourceOpener = e.pendingTabs.reopenAsync
 	if tm == nil {
 		tm = e.Browser()
 	}

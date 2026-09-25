@@ -328,6 +328,17 @@ func (c *Component) TabName(uri workspaceapi.URI) (string, string, bool) {
 	return "", "", false
 }
 
+// TabIcon returns the icon and default icon of the tab with the given uri
+// or false if there's no tab with the given uri.
+func (c *Component) TabIcon(uri workspaceapi.URI) (icon, defaultIcon rune, ok bool) {
+	for i, t := range c.buffers {
+		if t.uri.String() == uri.String() {
+			return c.tabs.TabIcon(i), c.tabs.DefaultTabIcon(i), true
+		}
+	}
+	return 0, 0, false
+}
+
 // TabAttrs returns the attributes of the tab with the given uri or false
 // if there's no tab with the given uri.
 func (c *Component) TabAttrs(uri workspaceapi.URI) (term.Attributes, bool) {

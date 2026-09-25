@@ -34,12 +34,14 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/api/llmapi"
 	"github.com/unstablebuild/rune-go-sdk/api/semanticapi"
 	"github.com/unstablebuild/rune-go-sdk/api/textapi"
+	"github.com/unstablebuild/rune-go-sdk/api/workspaceapi"
 	"github.com/unstablebuild/rune-go-sdk/handler/handlertest"
 	"github.com/unstablebuild/rune-go-sdk/term"
 
 	"unstable.build/rune/cmd/rune-agent/agent"
 	"unstable.build/rune/cmd/rune-agent/agent/skills"
 	"unstable.build/rune/cmd/rune-agent/configedit"
+	"unstable.build/rune/cmd/rune-agent/dialogue/dialoguemanager"
 	"unstable.build/rune/cmd/rune-agent/dialogue/dialoguetui"
 	"unstable.build/rune/cmd/rune-agent/llm/llmarg"
 	"unstable.build/rune/cmd/rune-agent/llm/llmtest"
@@ -160,6 +162,113 @@ func TestHandleChatTracksTabURIForActivity(t *testing.T) {
 	v, ok := h.openChats.Load(dialogueID)
 	require.True(t, ok)
 	assert.Equal(t, wm.gotURI, v.(syncComponent).uri)
+}
+
+// A restored workspace reopens a chat tab through OpenResource, which must
+// return the dialogue the tab URI names, known by that very URI, and leave
+// the tab to the host: it shows the content where it keeps the tab.
+func TestOpenResourceResumesChat(t *testing.T) {
+	const dialogueID = "rolling-fox"
+	chatURI := func(model string) workspaceapi.URI {
+		uri, err := getModelUri(dialogueID, model)
+		require.NoError(t, err)
+		return uri
+	}
+	tests := []struct {
+		name      string
+		uri       string
+		stored    *dialoguemanager.Dialogue
+		wantErr   string
+		wantModel string
+	}{
+		{
+			name:    "other scheme",
+			uri:     "file:///rolling-fox",
+			wantErr: "is not an agent chat",
+		},
+		{
+			name:    "no dialogue id",
+			uri:     "rune-agent://test-model",
+			wantErr: "is not an agent chat",
+		},
+		{
+			name:      "dialogue that was never stored uses the default model",
+			uri:       chatURI("other-model").String(),
+			wantModel: "test-model",
+		},
+		{
+			name:      "stored model is resumed",
+			uri:       chatURI("test-model").String(),
+			stored:    &dialoguemanager.Dialogue{ID: dialogueID, Model: "other-model"},
+			wantModel: "other-model",
+		},
+		{
+			name:      "unavailable stored model falls back to the default",
+			uri:       chatURI("gone-model").String(),
+			stored:    &dialoguemanager.Dialogue{ID: dialogueID, Model: "gone-model"},
+			wantModel: "test-model",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+
+			store := newMemDialogueStore()
+			if tt.stored != nil {
+				require.NoError(t, store.Create(ctx, *tt.stored))
+			}
+			svc := llmtest.New([]llmapi.ModelEntry{
+				{Provider: "test", Name: "test-model"},
+				{Provider: "test", Name: "other-model"},
+			})
+			wm := &recordingWindowManager{}
+			fs := nopFileSystem{}
+			h := &aiEditorHandler{
+				ctx:            ctx,
+				llmSvc:         svc,
+				defaultModel:   "test-model",
+				dialogueStore:  store,
+				wm:             wm,
+				n:              stubNotifications{},
+				p:              term.NopInterrupter(),
+				config:         configedit.NopConfig(),
+				skillRegistry:  skills.NewRegistry(fs, dirURI(""), nil, nil),
+				toolRegistry:   agent.NewRegistry(),
+				agentsConfig:   agent.NewConfig([]agent.Definition{{ID: "default", AllowAny: true}}),
+				cwd:            dirURI(""),
+				fs:             fs,
+				memoryDataPath: t.TempDir(),
+			}
+			uri, err := workspaceapi.ParseURI(tt.uri)
+			require.NoError(t, err)
+
+			content, err := h.OpenResource(ctx, uri)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, content)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, content)
+			assert.Nil(t, wm.gotHandler, "the tab is the host's, not the extension's")
+			assert.Zero(t, wm.setContentCalls, "placement is the host's")
+			v, ok := h.openChats.Load(dialogueID)
+			require.True(t, ok)
+			assert.Equal(t, uri, v.(syncComponent).uri,
+				"the chat must go by the URI the host asked for, whatever the model")
+			a, ok := h.openChatAgents.Load(dialogueID)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantModel, a.(*agent.Agent).Model())
+
+			_, err = h.OpenResource(ctx, uri)
+			require.ErrorContains(t, err, "is already open")
+
+			require.NoError(t, content.Close())
+			_, ok = h.openChats.Load(dialogueID)
+			assert.False(t, ok, "closing the content must end the chat")
+		})
+	}
 }
 
 // TestE2ECtrlCDismissesSelectionPrompt drives the chat tab handler

@@ -56,6 +56,7 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/tui"
 	"unstable.build/rune/internal/browser"
 	"unstable.build/rune/internal/browser/browsertest"
+	"unstable.build/rune/internal/cell"
 	tcomponent "unstable.build/rune/internal/component"
 	"unstable.build/rune/internal/component/notifications"
 	"unstable.build/rune/internal/component/shader"
@@ -7975,6 +7976,561 @@ func TestExtensionReadyCommand(t *testing.T) {
 func inlineSchedule(fn func()) bool {
 	fn()
 	return true
+}
+
+// recordingOpener is a resource opener that records every call. Each call
+// returns what open, the extension's side, returns when set; otherwise it
+// returns h, or fails with err when h is nil.
+type recordingOpener struct {
+	mu     sync.Mutex
+	opened []string
+	h      browserapi.Handler
+	err    error
+	open   func(ctx context.Context, uri workspaceapi.URI) (browserapi.Handler, error)
+}
+
+func (r *recordingOpener) OpenResource(
+	ctx context.Context, uri workspaceapi.URI,
+) (browserapi.Handler, error) {
+	r.mu.Lock()
+	r.opened = append(r.opened, uri.String())
+	r.mu.Unlock()
+	if r.open != nil {
+		return r.open(ctx, uri)
+	}
+	if r.h == nil {
+		return nil, r.err
+	}
+	return r.h, nil
+}
+
+// register makes r the opener of the fake scheme on the focused workspace
+// of m, as the extension would over its editor RPC.
+func (r *recordingOpener) register(t *testing.T, m *testWorkspaceManagerHandler) {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	require.NoError(t, m.exHandler(m.focusHandler()).editorObserver.
+		RegisterResourceOpener("fake", r))
+}
+
+func (r *recordingOpener) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.opened)
+}
+
+// TestRestoreExtensionTabs covers the tiled windows that show a tab an
+// extension can reopen: across a reload, the host shows a placeholder in
+// the window that took the original one's place, and asks the resource
+// opener of the tab's scheme to open the tab again once it registers.
+func TestRestoreExtensionTabs(t *testing.T) {
+	const tabURI = "fake://host/chat"
+	uri, err := workspaceapi.ParseURI(tabURI)
+	require.NoError(t, err)
+
+	// setup leaves the focused workspace split in two, with the fake tab
+	// shown in the right-hand window. Only a tab whose scheme has an
+	// opener is saved, so withOpener decides whether there is anything to
+	// restore. The reloaded workspace starts without the opener, as a
+	// workspace does until its extensions register theirs.
+	setup := func(
+		t *testing.T, withOpener bool,
+	) (*testWorkspaceManagerHandler, workspaceapi.URI) {
+		runner := newWaitReadyRunner()
+		close(runner.ready)
+		m := newTestWorkspaceManagerHandlerWithRunner(t,
+			defaultConfigWithWrap(false), t.TempDir(), runner)
+		t.Cleanup(func() { _ = m.Close() })
+		m.quiesce()
+		if withOpener {
+			new(recordingOpener).register(t, m)
+		}
+
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.Resize(80, 24)
+		ex := m.exHandler(m.focusHandler())
+		tab, err := ex.comp.Tab(uri, 'x', "chat", browsertest.NewTestHandler())
+		require.NoError(t, err)
+		_, err = ex.comp.Split(browserapi.OrientationRight, ex.invokeWindow(), tab)
+		require.NoError(t, err)
+		return m, m.workspaces[m.focus].uri
+	}
+
+	reload := func(t *testing.T, m *testWorkspaceManagerHandler) {
+		t.Helper()
+		m.mu.Lock()
+		require.NoError(t, m.commandReloadWorkspace())
+		m.mu.Unlock()
+		m.quiesce()
+	}
+
+	// restoredTabWindow is the window that took the place of the one
+	// that showed the tab before the reload.
+	restoredTabWindow := func(
+		t *testing.T, m *testWorkspaceManagerHandler,
+	) browser.Window {
+		t.Helper()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		b := m.exHandler(m.focusHandler()).comp.Browser()
+		layout := b.TileLayout()
+		require.Len(t, layout.Children, 2, "the split must be restored")
+		win, ok := b.Window(layout.Children[1].WindowID)
+		require.True(t, ok)
+		return win
+	}
+
+	// tabOf returns the tab of the fake URI on the focused workspace.
+	tabOf := func(t *testing.T, m *testWorkspaceManagerHandler) (*browser.Tab, bool) {
+		t.Helper()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.exHandler(m.focusHandler()).comp.Browser().Tab(uri)
+	}
+
+	// showsHandler reports whether the tab of the fake URI has h as its
+	// content.
+	showsHandler := func(m *testWorkspaceManagerHandler, h browserapi.Handler) bool {
+		m.quiesce()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		tab, ok := m.exHandler(m.focusHandler()).comp.Browser().Tab(uri)
+		return ok && tab.Handler() == h
+	}
+
+	// placeholderText renders the placeholder of the fake URI.
+	placeholderText := func(t *testing.T, m *testWorkspaceManagerHandler) string {
+		t.Helper()
+		tab, ok := tabOf(t, m)
+		require.True(t, ok)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		w := cell.NewBufferWriter(context.Background(), 60, 6)
+		tab.Resize(60, 6)
+		tab.Draw(w)
+		var b strings.Builder
+		for _, row := range w.RawCells() {
+			for _, c := range row {
+				if c.Ch != 0 {
+					b.WriteRune(c.Ch)
+				}
+			}
+			b.WriteRune('\n')
+		}
+		return b.String()
+	}
+
+	opened := func(m *testWorkspaceManagerHandler, r *recordingOpener) func() bool {
+		return func() bool {
+			m.quiesce()
+			return len(r.snapshot()) > 0
+		}
+	}
+
+	recordNotifications := func(m *testWorkspaceManagerHandler) *recordingNotifications {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		ex := m.workspaces[m.focus]
+		notes := &recordingNotifications{inner: ex.notifications}
+		ex.notifications = notes
+		ex.pendingTabs.notifications = notes
+		return notes
+	}
+
+	notified := func(notes *recordingNotifications, want string) bool {
+		for _, n := range notes.snapshot() {
+			if n.level == browserapi.LevelError && strings.Contains(n.msg, want) {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("reload shows a placeholder in the restored window", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		want := restoredTabWindow(t, m)
+
+		tab, ok := tabOf(t, m)
+		require.True(t, ok, "the tab must be restored before the extension registers")
+		m.mu.Lock()
+		ex := m.exHandler(m.focusHandler())
+		assert.True(t, ex.comp.PendingTabs().Contains(uri))
+		bound, ok := tab.Window()
+		require.True(t, ok)
+		assert.Equal(t, want.WindowID(), bound.WindowID())
+		_, icon, _ := ex.comp.Browser().TabIcon(uri)
+		_, name, _ := ex.comp.Browser().TabName(uri)
+		m.mu.Unlock()
+		assert.Equal(t, 'x', icon, "the placeholder must keep the tab's icon")
+		assert.Equal(t, "chat", name, "the placeholder must keep the tab's name")
+		assert.Contains(t, placeholderText(t, m),
+			"Waiting for an extension to open "+tabURI)
+	})
+
+	t.Run("the opened content takes the placeholder's place once the opener registers", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		want := restoredTabWindow(t, m)
+
+		h := browsertest.NewTestHandler()
+		rec := recordingOpener{h: h}
+		rec.register(t, m)
+
+		require.Eventually(t, opened(m, &rec), 2*time.Second, 10*time.Millisecond,
+			"the extension must be asked to reopen its tab")
+		require.Eventually(t, func() bool { return showsHandler(m, h) },
+			2*time.Second, 10*time.Millisecond)
+		require.Never(t, func() bool {
+			m.quiesce()
+			return len(rec.snapshot()) > 1
+		}, 100*time.Millisecond, 10*time.Millisecond,
+			"the tab must be reopened once")
+		assert.Equal(t, []string{tabURI}, rec.snapshot())
+		tab, ok := tabOf(t, m)
+		require.True(t, ok)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		bound, ok := tab.Window()
+		require.True(t, ok)
+		assert.Equal(t, want.WindowID(), bound.WindowID())
+		assert.False(t, m.exHandler(m.focusHandler()).comp.PendingTabs().Contains(uri))
+		_, icon, _ := m.exHandler(m.focusHandler()).comp.Browser().TabIcon(uri)
+		_, name, _ := m.exHandler(m.focusHandler()).comp.Browser().TabName(uri)
+		assert.Equal(t, 'x', icon, "the tab keeps the icon it was saved with")
+		assert.Equal(t, "chat", name, "the tab keeps the name it was saved with")
+	})
+
+	t.Run("the placeholder follows the user to the tab bar", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		closed := restoredTabWindow(t, m)
+		m.mu.Lock()
+		require.NoError(t, closed.Close())
+		m.mu.Unlock()
+
+		h := browsertest.NewTestHandler()
+		rec := recordingOpener{h: h}
+		rec.register(t, m)
+
+		require.Eventually(t, opened(m, &rec), 2*time.Second, 10*time.Millisecond,
+			"the extension must be asked to reopen its tab")
+		require.Eventually(t, func() bool { return showsHandler(m, h) },
+			2*time.Second, 10*time.Millisecond)
+		tab, _ := tabOf(t, m)
+		m.mu.Lock()
+		_, bound := tab.Window()
+		m.mu.Unlock()
+		assert.False(t, bound, "the tab must stay where the user left it")
+	})
+
+	t.Run("a placeholder the user closed is not reopened", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		tab, ok := tabOf(t, m)
+		require.True(t, ok)
+		m.mu.Lock()
+		require.True(t, m.exHandler(m.focusHandler()).comp.Browser().RemoveTab(tab))
+		m.mu.Unlock()
+
+		var rec recordingOpener
+		rec.register(t, m)
+
+		require.Never(t, opened(m, &rec), 200*time.Millisecond, 20*time.Millisecond)
+	})
+
+	t.Run("content opened for a placeholder the user closed is closed", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		h := browsertest.NewTestHandler()
+		closed := make(chan struct{})
+		h.CloseCallback = func() error { close(closed); return nil }
+		release := make(chan struct{})
+		rec := recordingOpener{open: func(context.Context, workspaceapi.URI) (browserapi.Handler, error) {
+			<-release
+			return h, nil
+		}}
+		rec.register(t, m)
+		require.Eventually(t, opened(m, &rec), 2*time.Second, 10*time.Millisecond)
+
+		tab, ok := tabOf(t, m)
+		require.True(t, ok)
+		m.mu.Lock()
+		require.True(t, m.exHandler(m.focusHandler()).comp.Browser().RemoveTab(tab))
+		m.mu.Unlock()
+		close(release)
+
+		require.Eventually(t, func() bool {
+			m.quiesce()
+			select {
+			case <-closed:
+				return true
+			default:
+				return false
+			}
+		}, 2*time.Second, 10*time.Millisecond,
+			"content nobody shows must be closed")
+		_, ok = tabOf(t, m)
+		assert.False(t, ok, "the closed tab must not come back")
+	})
+
+	t.Run("a registration during an open does not ask again", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		h := browsertest.NewTestHandler()
+		release := make(chan struct{})
+		rec := recordingOpener{open: func(context.Context, workspaceapi.URI) (browserapi.Handler, error) {
+			<-release
+			return h, nil
+		}}
+		rec.register(t, m)
+		require.Eventually(t, opened(m, &rec), 2*time.Second, 10*time.Millisecond)
+
+		// the extension restarts and registers again
+		m.mu.Lock()
+		require.NoError(t, m.exHandler(m.focusHandler()).editorObserver.
+			UnregisterResourceOpener("fake"))
+		m.mu.Unlock()
+		rec.register(t, m)
+		m.quiesce()
+		close(release)
+
+		require.Eventually(t, func() bool { return showsHandler(m, h) },
+			2*time.Second, 10*time.Millisecond)
+		require.Never(t, func() bool {
+			m.quiesce()
+			return len(rec.snapshot()) > 1
+		}, 100*time.Millisecond, 10*time.Millisecond)
+	})
+
+	t.Run("an opener registered before the restore is asked right away", func(t *testing.T) {
+		m, _ := setup(t, false)
+		other, err := workspaceapi.ParseURI("fake://host/other")
+		require.NoError(t, err)
+		h := browsertest.NewTestHandler()
+		rec := recordingOpener{h: h}
+		rec.register(t, m)
+
+		m.mu.Lock()
+		ex := m.exHandler(m.focusHandler())
+		win := ex.invokeWindow()
+		err = m.restoreExtensionTabs(ex, []idehistory.ExtensionTab{{
+			URI: other, Icon: 'x', Name: "other", WindowID: win.WindowID(), Focus: true,
+		}}, map[uint64]browser.Window{win.WindowID(): win})
+		m.mu.Unlock()
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			m.quiesce()
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			tab, ok := ex.comp.Browser().Tab(other)
+			return ok && tab.Handler() == h
+		}, 2*time.Second, 10*time.Millisecond)
+		assert.Equal(t, []string{other.String()}, rec.snapshot())
+	})
+
+	t.Run("a placeholder is saved again while it waits", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		reload(t, m)
+		restoredTabWindow(t, m)
+
+		_, ok := tabOf(t, m)
+		require.True(t, ok, "a placeholder must survive a reload before its opener registers")
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		assert.True(t, m.exHandler(m.focusHandler()).comp.PendingTabs().Contains(uri))
+	})
+
+	// A second reload can land while the first one's placeholder is still
+	// being opened. The reloaded workspace saves the placeholder as the
+	// tab, and the open in flight belongs to the workspace that is gone: it
+	// must neither reach the new placeholder nor leak what it opened.
+	t.Run("a reload during an open", func(t *testing.T) {
+		tests := []struct {
+			name string
+			// honorCancel makes the first opener give up when the reload
+			// cancels it, instead of returning its content late.
+			honorCancel bool
+		}{
+			{name: "cancels the open of the closed workspace", honorCancel: true},
+			{name: "closes the content the closed workspace's open returns late"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				m, _ := setup(t, true)
+				reload(t, m)
+				restoredTabWindow(t, m)
+				m.mu.Lock()
+				closedEx := m.exHandler(m.focusHandler())
+				m.mu.Unlock()
+
+				late := browsertest.NewTestHandler()
+				lateClosed := make(chan struct{})
+				late.CloseCallback = func() error { close(lateClosed); return nil }
+				release := make(chan struct{})
+				firstOpen := make(chan error, 1)
+				paced := recordingOpener{open: func(
+					ctx context.Context, _ workspaceapi.URI,
+				) (browserapi.Handler, error) {
+					if tt.honorCancel {
+						select {
+						case <-release:
+						case <-ctx.Done():
+							firstOpen <- ctx.Err()
+							return nil, ctx.Err()
+						}
+					} else {
+						<-release
+					}
+					firstOpen <- nil
+					return late, nil
+				}}
+				paced.register(t, m)
+				require.Eventually(t, opened(m, &paced), 2*time.Second, 10*time.Millisecond,
+					"the first reload must ask for the tab")
+
+				reload(t, m)
+				second := restoredTabWindow(t, m)
+				notes := recordNotifications(m)
+
+				tab, ok := tabOf(t, m)
+				require.True(t, ok, "the placeholder must be saved as the tab it stands for")
+				m.mu.Lock()
+				ex := m.exHandler(m.focusHandler())
+				require.NotSame(t, closedEx, ex, "the reload must rebuild the workspace")
+				assert.True(t, ex.comp.PendingTabs().Contains(uri))
+				bound, ok := tab.Window()
+				require.True(t, ok)
+				assert.Equal(t, second.WindowID(), bound.WindowID())
+				_, icon, _ := ex.comp.Browser().TabIcon(uri)
+				_, name, _ := ex.comp.Browser().TabName(uri)
+				m.mu.Unlock()
+				assert.Equal(t, 'x', icon, "the placeholder must keep the tab's icon")
+				assert.Equal(t, "chat", name, "the placeholder must keep the tab's name")
+
+				if tt.honorCancel {
+					select {
+					case err := <-firstOpen:
+						require.ErrorIs(t, err, context.Canceled,
+							"closing the workspace must cancel its open")
+					case <-time.After(2 * time.Second):
+						t.Fatal("the open of the closed workspace was not cancelled")
+					}
+				} else {
+					close(release)
+					require.NoError(t, <-firstOpen)
+					select {
+					case <-lateClosed:
+					case <-time.After(2 * time.Second):
+						t.Fatal("content nobody can show must be closed")
+					}
+				}
+				assert.Equal(t, []string{tabURI}, paced.snapshot(),
+					"the reloaded workspace must not ask the opener of the closed one")
+				assert.True(t, func() bool {
+					m.quiesce()
+					m.mu.Lock()
+					defer m.mu.Unlock()
+					return ex.comp.PendingTabs().Contains(uri)
+				}(), "the placeholder must keep waiting for the restarted extension")
+
+				// the extension restarts and registers again
+				h := browsertest.NewTestHandler()
+				rec := recordingOpener{h: h}
+				rec.register(t, m)
+				require.Eventually(t, func() bool { return showsHandler(m, h) },
+					2*time.Second, 10*time.Millisecond,
+					"the restarted extension's content must take the placeholder's place")
+				m.mu.Lock()
+				bound, ok = tab.Window()
+				m.mu.Unlock()
+				require.True(t, ok)
+				assert.Equal(t, second.WindowID(), bound.WindowID())
+				assert.Empty(t, notes.snapshot(), "nothing failed on the reloaded workspace")
+			})
+		}
+	})
+
+	t.Run("reopening without restore does not reopen the tab", func(t *testing.T) {
+		m, uri := setup(t, true)
+
+		m.mu.Lock()
+		require.NoError(t, m.commandCloseWorkspace())
+		require.NoError(t, m.addWorkspace(uri, false, false, -1))
+		m.mu.Unlock()
+		m.waitForWorkspace(t, uri)
+
+		var rec recordingOpener
+		rec.register(t, m)
+
+		require.Never(t, opened(m, &rec), 200*time.Millisecond, 20*time.Millisecond,
+			"a workspace opened without restore must not reopen extension tabs")
+		_, ok := tabOf(t, m)
+		assert.False(t, ok)
+	})
+
+	t.Run("a tab no opener can reopen is not saved", func(t *testing.T) {
+		m, _ := setup(t, false)
+		reload(t, m)
+
+		var rec recordingOpener
+		rec.register(t, m)
+
+		require.Never(t, opened(m, &rec), 200*time.Millisecond, 20*time.Millisecond,
+			"a tab whose scheme had no opener when it was saved must not be reopened")
+	})
+
+	t.Run("a failure is shown on the placeholder and notified", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		notes := recordNotifications(m)
+		(&recordingOpener{err: errors.New("boom")}).register(t, m)
+
+		require.Eventually(t, func() bool {
+			m.quiesce()
+			return notified(notes, "open "+tabURI+": boom")
+		}, 2*time.Second, 10*time.Millisecond)
+		assert.Contains(t, placeholderText(t, m), "boom")
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		assert.True(t, m.exHandler(m.focusHandler()).comp.PendingTabs().Contains(uri),
+			"the placeholder must keep waiting for a later attempt")
+	})
+
+	t.Run("an opener that returns no content is reported", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		notes := recordNotifications(m)
+		new(recordingOpener).register(t, m)
+
+		require.Eventually(t, func() bool {
+			m.quiesce()
+			return notified(notes, "open "+tabURI+": the extension returned no content")
+		}, 2*time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("an opener that does not answer in time is reported", func(t *testing.T) {
+		m, _ := setup(t, true)
+		reload(t, m)
+		notes := recordNotifications(m)
+		m.mu.Lock()
+		m.exHandler(m.focusHandler()).pendingTabs.timeout = 50 * time.Millisecond
+		m.mu.Unlock()
+		(&recordingOpener{open: func(ctx context.Context, _ workspaceapi.URI) (browserapi.Handler, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}).register(t, m)
+
+		require.Eventually(t, func() bool {
+			m.quiesce()
+			return notified(notes,
+				"open "+tabURI+": the extension did not open it within 50ms")
+		}, 2*time.Second, 10*time.Millisecond)
+	})
 }
 
 // TestWorkspaceNewResolvesRelativeAgainstHome guards that `workspaceopen`

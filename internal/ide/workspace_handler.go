@@ -2547,11 +2547,16 @@ func (h *workspaceManagerHandler) restorePreviousSession(
 	layout := state.Layout
 	layout.Floating = nil
 	restoreTerminals := len(state.Terminals) > 0
+	restoreExtensions := len(state.Extensions) > 0
 	windows := h.restoreWorkspaceWindows(ex, state.Files, restoreTerminals,
-		layout, state.HasLayout)
+		restoreExtensions, layout, state.HasLayout)
 	if restoreTerminals {
 		ret = multierror.Append(ret,
 			restoreOpenTerminalSessions(ex, state.Terminals, windows))
+	}
+	if restoreExtensions {
+		ret = multierror.Append(ret,
+			h.restoreExtensionTabs(ex, state.Extensions, windows))
 	}
 	if len(state.Tasks) > 0 {
 		ret = multierror.Append(ret,
@@ -2576,19 +2581,56 @@ func (h *workspaceManagerHandler) restoreWorkspaceWindows(
 	ex *ex,
 	files []idehistory.File,
 	restoreTerminals bool,
+	restoreExtensions bool,
 	layout tcomponent.TileLayout,
 	hasLayout bool,
 ) map[uint64]browser.Window {
 	if !hasLayout {
 		return nil
 	}
-	if len(files) == 0 && !restoreTerminals {
+	if len(files) == 0 && !restoreTerminals && !restoreExtensions {
 		return nil
 	}
 	return ex.comp.Browser().RestoreTileLayout(layout, func(windowID uint64) browserapi.Handler {
 		return nil
 	})
 }
+
+// restoreExtensionTabs reopens each tab as a placeholder, in the window
+// its WindowID maps to when that window was restored and in the tab bar
+// otherwise. The extension owning the tab's scheme replaces the
+// placeholder once it registers its resource opener (see
+// pendingTabOpener), or right away if it already has.
+func (h *workspaceManagerHandler) restoreExtensionTabs(
+	ex *ex, tabs []idehistory.ExtensionTab, windows map[uint64]browser.Window,
+) error {
+	ret := new(multierror.Error)
+	schemes := make(map[string]struct{})
+	for _, tab := range tabs {
+		schemes[tab.URI.Scheme()] = struct{}{}
+		t := ex.comp.PendingTabs().Open(tab.URI, tab.Icon, tab.Name)
+		win, ok := windows[tab.WindowID]
+		if !ok {
+			continue
+		}
+		if err := win.SetContent(t); err != nil &&
+			!errors.Is(err, browserapi.ErrTabNotFree) {
+			ret = multierror.Append(ret,
+				fmt.Errorf("restore extension tab %s: %w", tab.URI, err))
+			continue
+		}
+		if tab.Focus {
+			ex.comp.Browser().SetFocus(win)
+		}
+	}
+	for scheme := range schemes {
+		if _, ok := ex.comp.ResourceOpener(scheme); ok {
+			ex.pendingTabs.reopenAsync(scheme)
+		}
+	}
+	return ret.ErrorOrNil()
+}
+
 func (h *workspaceManagerHandler) nextAvailableWorkspace() (idx int, ok bool) {
 	for i := h.focus; i >= 0 && i < len(h.workspaces); i++ {
 		if h.slotIsFree(i) {

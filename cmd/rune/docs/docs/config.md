@@ -57,9 +57,10 @@ nothing happens until you reload. There are two levels of reload.
 ### `:workspacereload`
 
 `:workspacereload` closes the focused workspace and opens it again. The open
-buffers, cursor positions and window layout are restored, but everything the
-workspace owns is rebuilt from a fresh read of your config file and the
-workspace's `.rune/config.yaml`. This is the fastest way to try out a change
+buffers, cursor positions, window layout and the extension tabs shown in it,
+such as agent chats, are restored, but everything the workspace owns is
+rebuilt from a fresh read of your config file and the workspace's
+`.rune/config.yaml`. This is the fastest way to try out a change
 and covers most of the configuration surface:
 
 - `editor.*`: mode, auto-save, tabspaces, comments, syntax size limits
