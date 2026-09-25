@@ -956,6 +956,48 @@ func TestWorkspaceBarShadesActiveWorkspaces(t *testing.T) {
 	require.NoError(t, m.Close())
 }
 
+// A pending notification takes precedence over the active-tab effect:
+// the effect would wash out or repaint the notification colour. Focusing
+// the workspace clears the notification and restores the effect.
+func TestWorkspaceBarNotificationOverridesActivity(t *testing.T) {
+	m, slot := newActivityTestManager(t, defaultConfigWithWrap(false))
+	chat, err := workspaceapi.ParseURI("rune-agent://model/rolling-fox")
+	require.NoError(t, err)
+
+	m.mu.Lock()
+	comp := &m.workspaces[slot].ex.comp
+	_, err = comp.Tab(chat, 'x', "rolling-fox", browsertest.NewTestHandler())
+	require.NoError(t, err)
+	require.NoError(t, comp.SetTabActivity(chat, true))
+	require.True(t, m.shadedBar.Running())
+	barIdx := slices.Index(m.barIdxToSlot, slot)
+	require.GreaterOrEqual(t, barIdx, 0)
+	require.Equal(t, []int{barIdx}, m.activeWorkspaceBarIndices())
+	uri := m.workspaces[slot].uri
+	m.mu.Unlock()
+
+	m.setWorkspaceRequiresAttention(uri, term.Attributes{Fg: term.ColorYellow})
+	m.quiesce()
+
+	m.mu.Lock()
+	require.NotEqual(t, term.Attributes{}, m.workspaces[slot].attentionAttr)
+	assert.Empty(t, m.activeWorkspaceBarIndices(),
+		"a workspace with a pending notification is not shaded")
+	assert.False(t, m.shadedBar.Running(),
+		"the effect stops when every active workspace has a notification")
+
+	require.True(t, m.switchToWorkspace(slot))
+	assert.Equal(t, term.Attributes{}, m.workspaces[slot].attentionAttr)
+	assert.True(t, m.shadedBar.Running(),
+		"focusing clears the notification and restores the effect")
+	barIdx = slices.Index(m.barIdxToSlot, slot)
+	require.GreaterOrEqual(t, barIdx, 0)
+	assert.Contains(t, m.activeWorkspaceBarIndices(), barIdx)
+	m.mu.Unlock()
+
+	require.NoError(t, m.Close())
+}
+
 // Content and workspace tabs are animated separately: the workspace bar
 // follows animations.active_workspace_tab alone, and still sees the
 // activity of content tabs whose own animation is disabled.

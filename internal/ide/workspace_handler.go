@@ -3148,13 +3148,22 @@ func (h *workspaceManagerHandler) workspaceActive(slot int) bool {
 	return w != nil && w.ex != nil && w.ex.comp.HasActiveTabs()
 }
 
+// workspaceShaded reports whether the workspace in slot runs the bar's
+// active-tab effect. A pending notification takes precedence: the
+// effect would wash out or repaint its colour, hiding that the
+// workspace needs the user rather than just being busy.
+func (h *workspaceManagerHandler) workspaceShaded(slot int) bool {
+	return h.workspaceActive(slot) &&
+		h.workspaces[slot].attentionAttr == (term.Attributes{})
+}
+
 // activeWorkspaceBarIndices returns the workspace bar indices of the
 // workspaces with at least one active tab, whether or not they are in
-// focus.
+// focus. Workspaces with a pending notification are excluded.
 func (h *workspaceManagerHandler) activeWorkspaceBarIndices() []int {
 	var ret []int
 	for idx, slot := range h.barIdxToSlot {
-		if h.workspaceActive(slot) {
+		if h.workspaceShaded(slot) {
 			ret = append(ret, idx)
 		}
 	}
@@ -3162,8 +3171,9 @@ func (h *workspaceManagerHandler) activeWorkspaceBarIndices() []int {
 }
 
 // refreshWorkspaceActivity runs the workspace bar's active-tab effect
-// while the bar is shown and any workspace has an active tab. It must
-// be called on the host event loop whenever either can change.
+// while the bar is shown and any workspace without a pending
+// notification has an active tab. It must be called on the host event
+// loop whenever any of these can change.
 func (h *workspaceManagerHandler) refreshWorkspaceActivity() {
 	if h.shadedBar == nil {
 		// initTabs has not run yet; it refreshes once the bar exists.
@@ -3171,7 +3181,7 @@ func (h *workspaceManagerHandler) refreshWorkspaceActivity() {
 	}
 	anyActive := false
 	for slot := range h.workspaces {
-		if h.workspaceActive(slot) {
+		if h.workspaceShaded(slot) {
 			anyActive = true
 			break
 		}
