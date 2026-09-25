@@ -287,7 +287,7 @@ These are the shipped preset assignments. Every layout binding lives in
 | `windowtogglemaximize` | `<shift-meta-f>` |
 | `windowdefaultsplit h/v` | `<ctrl-meta-h>` / `<ctrl-meta-v>` |
 | `windownew` | `<meta-n>` |
-| `windowclose` | `<meta-w>` |
+| `windowclose` / `windowcloseall` | `<meta-w>` / `<shift-meta-w>` |
 | `tabnew` | `<meta-t>` |
 | `tabnext` / `tabprevious` | `<alt-l>` / `<alt-h>` |
 | `tabfocus 1..9` | `<alt-1>` … `<alt-9>` |

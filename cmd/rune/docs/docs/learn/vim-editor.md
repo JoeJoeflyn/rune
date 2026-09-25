@@ -125,7 +125,7 @@ Common window actions use memorable `<meta>` and `<alt>` bindings:
 | Split horizontally / vertically | `<ctrl-meta-h>` / `<ctrl-meta-v>` |
 | Maximise the focused window | `<shift-meta-f>` |
 | Open a terminal in place or in a new split | `<meta-enter>` |
-| Close the focused window | `<meta-w>` |
+| Close the focused window / the others | `<meta-w>` / `<shift-meta-w>` |
 | Prefill `windowconverttab` in the command prompt | `<alt-enter>` |
 
 Tabs use the horizontal `h` / `l` pair. Add `<shift>` to reorder the current

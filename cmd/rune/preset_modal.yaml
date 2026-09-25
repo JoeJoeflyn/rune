@@ -133,6 +133,7 @@ command:
     "<alt-meta-k>": "windowresize increase height"
     "<alt-meta-l>": "windowresize increase width"
     "<meta-w>": "windowclose"
+    "<shift-meta-w>": "windowcloseall"
     "<ctrl-meta-h>": "windowdefaultsplit h"
     "<ctrl-meta-v>": "windowdefaultsplit v"
     "<shift-meta-f>": "windowtogglemaximize"

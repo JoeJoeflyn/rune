@@ -177,6 +177,17 @@ func TestHelixPresetSharesVimLayoutChords(t *testing.T) {
 				key, helix[key], cmd)
 		}
 	}
+	// A terminal swallows prefix chords such as <ctrl-w>, so every close
+	// the tutorials teach needs a single chord.
+	for key, cmd := range map[string]string{
+		"<meta-w>":       "windowclose",
+		"<shift-meta-w>": "windowcloseall",
+		"<alt-w>":        "tabclose",
+	} {
+		if vim[key] != cmd {
+			t.Errorf("vim preset binds %s to %q, want %q", key, vim[key], cmd)
+		}
+	}
 	for key, cmd := range map[string]string{
 		"<ctrl-w>q": "windowclose",
 		"<ctrl-w>o": "windowcloseall",
