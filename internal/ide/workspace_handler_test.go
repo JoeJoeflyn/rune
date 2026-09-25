@@ -61,6 +61,7 @@ import (
 	"unstable.build/rune/internal/component/shader"
 	"unstable.build/rune/internal/debug"
 	"unstable.build/rune/internal/extension"
+	thandler "unstable.build/rune/internal/handler"
 	"unstable.build/rune/internal/handler/handlertest"
 	handlermarkdown "unstable.build/rune/internal/handler/markdown"
 	"unstable.build/rune/internal/ide/ideauthorizer"
@@ -8621,4 +8622,64 @@ func keyEvent(k term.KeyComb) term.Event {
 		ev.Raw = []byte(string(k.Ch))
 	}
 	return ev
+}
+
+// TestCommandBindingOptsEditorKeyBindings pins that each modal editor
+// brings the sequences of its own grammar, and that they beat a config
+// binding on the same keys.
+func TestCommandBindingOptsEditorKeyBindings(t *testing.T) {
+	seq := func(keys string) thandler.Sequence {
+		s, err := thandler.ParseSequence(keys)
+		require.NoError(t, err)
+		return s
+	}
+	for _, tc := range []struct {
+		mode   string
+		want   map[string][][]string
+		absent []string
+	}{
+		{
+			mode: editorModeHelix,
+			want: map[string][][]string{
+				"gd": {{"lsp", "definition"}},
+				"]d": {{"jumptolocation", "next", "lsp-diagnostics"}},
+			},
+			absent: []string{"ma"},
+		},
+		{
+			mode: editorModeVim,
+			want: map[string][][]string{
+				"ma": {{text.CommandDeleteAllLocations, "a"}, {text.CommandCreateLocation, "a"}},
+				"gd": {{"configdefinition"}},
+			},
+			absent: []string{"]d"},
+		},
+		{
+			mode:   editorModeStandard,
+			want:   map[string][][]string{"gd": {{"configdefinition"}}},
+			absent: []string{"ma"},
+		},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			cfg := ideConfig{
+				cfg: map[string]any{
+					"editor": map[string]any{"mode": tc.mode},
+					"command": map[string]any{
+						"key_bindings": map[string]any{"gd": "configdefinition"},
+					},
+				},
+				errors: map[string]error{},
+			}
+			textCfg := text.DefaultConfig()
+			for _, o := range commandBindingOpts(cfg) {
+				o(&textCfg)
+			}
+			for keys, cmds := range tc.want {
+				assert.Equalf(t, cmds, textCfg.CommandSequenceBindings[seq(keys)], "binding for %s", keys)
+			}
+			for _, keys := range tc.absent {
+				assert.NotContainsf(t, textCfg.CommandSequenceBindings, seq(keys), "binding for %s", keys)
+			}
+		})
+	}
 }

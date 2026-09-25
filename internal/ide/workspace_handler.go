@@ -1556,17 +1556,16 @@ func (h *workspaceManagerHandler) textOpts(
 		text.WithEnvSource(h.envSource),
 		text.WithStreamingOpen(h.streamingOpen),
 	}
+	return append(ret, commandBindingOpts(cfg)...)
+}
 
-	for seq, cmd := range cfg.commandKeyMappings() {
-		if seq.Last != (term.KeyComb{}) {
-			ret = append(ret, text.WithCommandSequenceBinding(seq, cmd))
-		} else {
-			ret = append(ret, text.WithCommandKeyBinding(seq.First, cmd))
-		}
-	}
-
-	if cfg.editorMode() == editorModeVim {
-		for seq, cmd := range vi.KeyBindings() {
+// commandBindingOpts binds cfg's command key bindings, then the bindings
+// the configured editor brings with its own grammar, which win on the
+// same keys.
+func commandBindingOpts(cfg ideConfig) []text.Option {
+	var ret []text.Option
+	add := func(bindings map[handler.Sequence][][]string) {
+		for seq, cmd := range bindings {
 			if seq.Last != (term.KeyComb{}) {
 				ret = append(ret, text.WithCommandSequenceBinding(seq, cmd))
 			} else {
@@ -1574,7 +1573,13 @@ func (h *workspaceManagerHandler) textOpts(
 			}
 		}
 	}
-
+	add(cfg.commandKeyMappings())
+	switch cfg.editorMode() {
+	case editorModeVim:
+		add(vi.KeyBindings())
+	case editorModeHelix:
+		add(helix.KeyBindings())
+	}
 	return ret
 }
 

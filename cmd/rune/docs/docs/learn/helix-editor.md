@@ -163,6 +163,20 @@ caret is already on. Labels are ordered outward from the caret, so the nearest
 targets get the shortest ones. Any key that is not part of a live label cancels.
 In select mode `g w` extends the selection to the label instead of replacing it.
 
+### Language and Git navigation
+
+The helix editor answers these entries of the goto and bracket menus with Rune
+commands, whatever preset you load:
+
+| Key | Action |
+| --- | --- |
+| `g d` / `g D` | Go to the definition / declaration |
+| `g y` / `g i` | Go to the type definition / implementation |
+| `g r` | References to the symbol |
+| `g n` / `g p` | Next / previous tab |
+| `] d` / `[ d` | Next / previous diagnostic |
+| `] g` / `[ g` | Next / previous Git change |
+
 ## Scrolling
 
 | Key | Action |
@@ -501,8 +515,7 @@ drive the editor grammar itself.
 
 ## What's not here
 
-Shell piping (`\|`, `!`, `$`), `C-z` suspend, LSP-driven `g d` / `g r` / `g i`
-navigation, `A-I` / `A-a` (insert at the start / end of every line of the
-selection) and the `[`/`]` diagnostic and syntax jumps are not bound by the
-editor. Use the [command prompt](./command-prompt.md) and the preset's
-`<space>` menu for the ones Rune provides.
+Shell piping (`\|`, `!`, `$`), `C-z` suspend, `A-I` / `A-a` (insert at the
+start / end of every line of the selection) and the `[`/`]` syntax tree jumps
+are not bound by the editor. Use the [command prompt](./command-prompt.md) and
+the preset's `<space>` menu for the ones Rune provides.

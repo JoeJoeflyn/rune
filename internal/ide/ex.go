@@ -154,6 +154,12 @@ type ex struct {
 	reissueEvent             term.Event
 	cmd                      *command.Prompt
 	syncCommandPrompt        bool
+	// editorPrefix is the previous key if the editor consumed it even
+	// though it starts a sequence binding. A modal editor can open a
+	// pending command of its own with such a key, as Helix's g menu
+	// does, and the binding completes when the editor declines the next
+	// key.
+	editorPrefix term.KeyComb
 	// promptEditor backs both the command prompt's modal edit mode
 	// and the companion shell's input line. It is a required
 	// dependency (see newEx) so neither consumer has to guard nil.
@@ -2567,6 +2573,7 @@ func (e *ex) handleEvent(ev term.Event) (
 	exit, handled bool,
 ) {
 	if ev.Type == term.EventMouse {
+		e.editorPrefix = term.KeyComb{}
 		_, handled = e.comp.Browser().Handle(ev)
 		return
 	}
@@ -2584,6 +2591,9 @@ func (e *ex) handleEvent(ev term.Event) (
 		_, handled = e.comp.Browser().Handle(ev)
 		return
 	}
+
+	editorPrefix := e.editorPrefix
+	e.editorPrefix = term.KeyComb{}
 
 	// If ex is configured with non character
 	// command mode trigger event, then this takes
@@ -2605,16 +2615,33 @@ func (e *ex) handleEvent(ev term.Event) (
 		// delegated to handler, otherwise it'll handle it and switch to insert mode.
 		_, handled = e.comp.Browser().Handle(ev)
 		if handled {
+			if e.sequencer.IsPrefix(keyComb) {
+				e.editorPrefix = keyComb
+			}
 			return
 		}
 	}
 
 	var seq thandler.Sequence
 	var match thandler.SequenceMatchResult
-	// err nil indicates that match is still valid as timer hasn't expired
-	// and it was not canceled yet or simply it hasn't even started and
-	// this is first event in sequence.
-	if e.ctxPartialReissue.Err() == nil {
+	switch {
+	case editorPrefix != (term.KeyComb{}):
+		// The editor declined keyComb after it consumed the prefix, so
+		// its pending command is over. A bare keyComb that misses must
+		// not start a sequence of its own either: the editor has
+		// declined it once, and re-issuing it on a timeout would land
+		// in the editor's reset state as a fresh command, as the second
+		// g of a gg that cannot move would open Helix's g menu.
+		seq = thandler.Sequence{First: editorPrefix, Last: keyComb}
+		if _, ok := e.config.CommandSequenceBindings[seq]; ok {
+			match = thandler.SequenceMatch
+		} else if keyComb.Mod != 0 {
+			seq, match = e.sequencer.Sequence(keyComb)
+		}
+	case e.ctxPartialReissue.Err() == nil:
+		// err nil indicates that match is still valid as timer hasn't
+		// expired and it was not canceled yet or simply it hasn't even
+		// started and this is first event in sequence.
 		seq, match = e.sequencer.Sequence(keyComb)
 	}
 
