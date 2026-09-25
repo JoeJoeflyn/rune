@@ -1081,6 +1081,28 @@ func TestWorkspaceHome(t *testing.T) {
 		"workspace": map[string]any{"home": "~/work"},
 	}, errors: map[string]error{}}
 	assert.Equal(t, "~/work", cfg.workspaceHome())
+
+	// env vars expand at the config boundary; file APIs keep "$" literal
+	t.Setenv("RUNE_TEST_WORKSPACE_HOME", "/srv/work")
+	cfg = &ideConfig{cfg: map[string]any{
+		"workspace": map[string]any{"home": "$RUNE_TEST_WORKSPACE_HOME/src"},
+	}, errors: map[string]error{}}
+	assert.Equal(t, "/srv/work/src", cfg.workspaceHome())
+
+	// expanding to empty → default "~"
+	cfg = &ideConfig{cfg: map[string]any{
+		"workspace": map[string]any{"home": "$RUNE_TEST_UNSET_WORKSPACE_HOME"},
+	}, errors: map[string]error{}}
+	assert.Equal(t, "~", cfg.workspaceHome())
+}
+
+func TestLogOutputPathExpandsEnv(t *testing.T) {
+	t.Setenv("RUNE_TEST_LOG_DIR", "/var/log/rune")
+	cfg := &ideConfig{cfg: map[string]any{
+		"log_path": "$RUNE_TEST_LOG_DIR/debug.log",
+	}, errors: map[string]error{}}
+	assert.Equal(t, "/var/log/rune/debug.log", cfg.logOutputPath())
+	assert.Empty(t, cfg.errors)
 }
 
 func TestConfigDecodeError(t *testing.T) {

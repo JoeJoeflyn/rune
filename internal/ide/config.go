@@ -3711,6 +3711,7 @@ func (c ideConfig) wallpaper() (ret browser.Wallpaper) {
 		}
 		return c.wallpaperASCII(cfg, backgroundAttr)
 	}
+	cfgImage = os.ExpandEnv(cfgImage)
 
 	densityChars, err := cfg.GetString("wallpaper_density_characters")
 	if err != nil {
@@ -3822,7 +3823,7 @@ func (c ideConfig) logOutputPath() string {
 		}
 		return ""
 	}
-	return path
+	return os.ExpandEnv(path)
 }
 
 func (c ideConfig) logLevel() (log.Level, slog.Level) {
@@ -3983,9 +3984,10 @@ func (c ideConfig) workspaceWallpaperAttr() term.Attributes {
 		term.Attributes{})
 }
 
-// workspaceHome returns the configured home workspace path. It
-// defaults to "~" when unset; callers are responsible for expanding
-// the "~" shortcut against the user's home directory.
+// workspaceHome returns the configured home workspace path with
+// environment variables expanded. It defaults to "~" when unset;
+// callers are responsible for expanding the "~" shortcut against the
+// user's home directory.
 func (c ideConfig) workspaceHome() string {
 	ws := c.workspace()
 	home, err := ws.GetString("home")
@@ -3995,6 +3997,7 @@ func (c ideConfig) workspaceHome() string {
 		}
 		return "~"
 	}
+	home = os.ExpandEnv(home)
 	if home == "" {
 		return "~"
 	}

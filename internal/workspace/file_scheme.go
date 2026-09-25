@@ -389,8 +389,11 @@ func (p *fileScheme) StartCommand(ctx context.Context, cmd workspaceapi.Cmd) (
 			cmd.Env = append(cmd.Env, fmt.Sprintf("ZDOTDIR=%s", p.zdotDir))
 		}
 	}
+	// Unlike file paths, the executable comes from configuration such as
+	// an extension entrypoint of "$RUNE_DATADIR/bin/x", and is expanded
+	// here so an SSH workspace resolves it against the remote environment.
 	cmd.Path, err = workspaceapi.ExpandPath(
-		cmd.Path, p.getUserOrLookup,
+		os.ExpandEnv(cmd.Path), p.getUserOrLookup,
 		func() (string, error) { return "", nil })
 	if err != nil {
 		return 0, fmt.Errorf("expand cmd.Path: %w", err)
