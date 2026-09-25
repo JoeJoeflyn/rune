@@ -626,6 +626,69 @@ func TestTabClickFreeTabLoadsIntoFocusedWindow(t *testing.T) {
 		"clicking a free tab must load it into the focused window")
 }
 
+// TestSwapContentRebindsTabs reproduces a crash where swapping window
+// contents left each tab bound to the window it moved out of. Closing
+// one of the windows then freed the wrong tab, and clicking the other
+// tab focused the closed window and panicked in SetFocus.
+func TestSwapContentRebindsTabs(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		split     browserapi.Orientation
+		fromFirst bool
+		swap      func(*Component) bool
+	}{
+		{"left", browserapi.OrientationRight, false, (*Component).SwapContentLeft},
+		{"right", browserapi.OrientationRight, true, (*Component).SwapContentRight},
+		{"up", browserapi.OrientationBottom, false, (*Component).SwapContentUp},
+		{"down", browserapi.OrientationBottom, true, (*Component).SwapContentDown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Frame = false
+			cfg.FrameUnion = false
+			b := NewComponent(cfg)
+
+			uriA, err := workspaceapi.ParseURI("file:///a")
+			require.NoError(t, err)
+			tabA := b.NewTab(uriA, 'A', "a", newTestHandler(), nil)
+			first := b.Focus()
+			require.NoError(t, first.SetContent(tabA))
+
+			uriB, err := workspaceapi.ParseURI("file:///b")
+			require.NoError(t, err)
+			tabB := b.NewTab(uriB, 'B', "b", newTestHandler(), nil)
+			second, ok := b.Split(tc.split, first, tabB)
+			require.True(t, ok)
+			b.Resize(40, 20)
+			if tc.fromFirst {
+				b.SetFocus(first)
+			}
+
+			require.True(t, tc.swap(b))
+
+			for _, win := range []Window{first, second} {
+				content, err := win.Content()
+				require.NoError(t, err)
+				tab := content.(*Tab)
+				bound, ok := tab.Window()
+				require.True(t, ok)
+				assert.Equal(t, win, bound,
+					"tab %q must be bound to the window showing it", tab.URI())
+			}
+
+			require.NoError(t, second.Close())
+			_, ok = tabA.Window()
+			assert.False(t, ok, "closing the window showing tab A must free it")
+			bound, ok := tabB.Window()
+			require.True(t, ok)
+			assert.Equal(t, first, bound)
+
+			require.NotPanics(t, func() { b.tabs.OnClick(1) })
+			assert.Equal(t, first, b.Focus())
+		})
+	}
+}
+
 // TestLayoutAliasSwitchingThenTabClick reproduces the user's crash: open
 // a file (a tab in the focused window), repeatedly switch window layouts
 // via aliases that run `windowcloseall` followed by one or more

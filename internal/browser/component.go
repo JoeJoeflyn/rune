@@ -969,22 +969,52 @@ func (c *Component) FocusUp() bool {
 
 // SwapContentDown calls the underlying WindowManager.SwapContentDown.
 func (c *Component) SwapContentDown() bool {
-	return c.wm.SwapContentDown()
+	return c.swapContent((*thandler.WindowManager).SwapContentDown, thandler.Window.TileDown)
 }
 
 // SwapContentLeft calls the underlying WindowManager.SwapContentLeft.
 func (c *Component) SwapContentLeft() bool {
-	return c.wm.SwapContentLeft()
+	return c.swapContent((*thandler.WindowManager).SwapContentLeft, thandler.Window.TileLeft)
 }
 
 // SwapContentRight calls the underlying WindowManager.SwapContentRight.
 func (c *Component) SwapContentRight() bool {
-	return c.wm.SwapContentRight()
+	return c.swapContent((*thandler.WindowManager).SwapContentRight, thandler.Window.TileRight)
 }
 
 // SwapContentUp calls the underlying WindowManager.SwapContentUp.
 func (c *Component) SwapContentUp() bool {
-	return c.wm.SwapContentUp()
+	return c.swapContent((*thandler.WindowManager).SwapContentUp, thandler.Window.TileUp)
+}
+
+// swapContent rebinds the tabs the window manager moved, as it swaps
+// content without knowing about tabs. A tab left bound to the window it
+// moved out of is not freed when its new window closes, and focusing it
+// then targets the closed window.
+func (c *Component) swapContent(
+	swap func(*thandler.WindowManager) bool,
+	tile func(thandler.Window) (thandler.Window, bool),
+) bool {
+	if !swap(&c.wm) {
+		return false
+	}
+	focus := c.wm.Focus()
+	other, ok := tile(focus)
+	if !ok {
+		panic("corrupted browser: cannot find swapped window")
+	}
+	for _, w := range []thandler.Window{focus, other} {
+		win, ok := c.findWindow(w.ID())
+		if !ok {
+			panic("corrupted browser: cannot find swapped window")
+		}
+		if t, ok := browserTabAtWindow(win); ok {
+			t.setWindow(nil, win)
+			t.callOnFocus()
+		}
+	}
+	c.dirtyTabs = true
+	return true
 }
 
 // ResetWindowSize resets width and height to be automatically calculated.
