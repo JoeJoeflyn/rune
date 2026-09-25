@@ -60,15 +60,14 @@ wrap it) works by:
 
 1. building `deploy/rune-linux/Dockerfile` with `docker buildx`
 2. running the Go toolchain on `$BUILDPLATFORM`
-3. passing `GIT_SSH_KEY` as a build arg so the private Go modules resolve
-4. installing the target-arch Linux cross compiler and development headers
-5. cross-compiling `./cmd/rune` to `linux/$TARGETARCH` with
+3. installing the target-arch Linux cross compiler and development headers
+4. cross-compiling `./cmd/rune` to `linux/$TARGETARCH` with
    `rpath=$ORIGIN/../lib` so the binary finds its bundled libraries
-6. copying each NEEDED shared library (and their transitive deps) into
+5. copying each NEEDED shared library (and their transitive deps) into
    `rune.app/lib/`, following symlinks so every file is a real ELF object
-7. packaging `rune.app/` into a `ustar` `.tar.gz` inside the Linux container
+6. packaging `rune.app/` into a `ustar` `.tar.gz` inside the Linux container
    so host-specific metadata such as macOS xattrs cannot enter the archive
-8. exporting both the `rune.app/` directory and `.tar.gz` from the final
+7. exporting both the `rune.app/` directory and `.tar.gz` from the final
    scratch stage
 
 ## Build commands
@@ -132,7 +131,9 @@ make rune-release-linux-amd64-native
 make rune-release-linux-arm64-native
 ```
 
-To build, package, and publish as a GitHub release asset:
+Pushing a `v*` tag runs the Release workflow
+(`.github/workflows/release.yml`), which drafts the GitHub release and
+attaches both prod tarballs. To build and attach them by hand instead:
 
 ```bash
 # Production (unstablebuild/rune, prod API endpoints baked in)
