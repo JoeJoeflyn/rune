@@ -124,7 +124,7 @@ becomes a buffer you edit with a full Rune editor, with cursor motions,
 word jumps, selection, yank and paste, undo, and auto-pairing all
 available.
 
-The editor follows your `editor.mode`: `modal` mode gives you
+The editor follows your `editor.mode`: `vim` mode gives you
 [modal editing](./vim-editor.md) with normal-mode motions and text objects,
 `helix` mode gives you the [Helix editor](./helix-editor.md) and its
 selection-first grammar, `standard` mode gives you the

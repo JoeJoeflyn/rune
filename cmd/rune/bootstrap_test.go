@@ -57,11 +57,11 @@ func TestOptionToChoiceMapping(t *testing.T) {
 		option string
 		want   string
 	}{
-		{optVimYes, editorModal},
+		{optVimYes, editorVim},
 		{optStandard, editorStandard},
 		{optEmacs, editorEmacs},
 		{optHelix, editorHelix},
-		{"unknown", editorModal}, // default fallback
+		{"unknown", editorVim}, // default fallback
 	}
 	for _, tc := range cases {
 		t.Run(tc.option, func(t *testing.T) {
@@ -70,17 +70,19 @@ func TestOptionToChoiceMapping(t *testing.T) {
 	}
 }
 
-// TestRenderPreset pins that the vim-mode choice maps to the modal
+// TestRenderPreset pins that the vim choice maps to the vim
 // preset, the standard-editor choice maps to the standard preset
 // (which switches editor.mode to standard), the emacs choice maps to
 // the emacs preset, the deprecated modeless alias resolves to the
 // standard preset, and that an unknown choice is an error.
 func TestRenderPreset(t *testing.T) {
-	modal, err := renderPreset(editorModal, false)
+	vim, err := renderPreset(editorVim, false)
 	require.NoError(t, err)
-	require.NotContains(t, modal, "mode: standard",
+	require.NotContains(t, vim, "mode: standard",
 		"vim mode must not switch the editor into standard")
-	require.Contains(t, modal, "enabled: false",
+	require.NotContains(t, vim, "modal editor preset",
+		"the preset written to the user config must not name the retired mode")
+	require.Contains(t, vim, "enabled: false",
 		"telemetry=false must render enabled: false")
 
 	std, err := renderPreset(editorStandard, true)
@@ -370,7 +372,7 @@ func TestBootstrapTelemetryPersistenceRoundTrip(t *testing.T) {
 			prompter := &fakeBootstrapPrompter{}
 			b := &bootstrapHandler{
 				dataDir:      dir,
-				chosenEditor: editorModal,
+				chosenEditor: editorVim,
 				prompter:     prompter,
 				publishEvent: func(term.Event) bool { return true },
 			}

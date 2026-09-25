@@ -20,16 +20,16 @@ mode = editor_mode()
 # prompt sits on the same key, and motion is on the home row. Only the
 # picker keys differ, so copy about modality branches on this and copy
 # about keys branches on the mode itself.
-modal_mode = mode == "modal" or mode == "helix"
+modal_mode = mode == "vim" or mode == "helix"
 # The config file moves with the data directory (`rune -d`), so copy
 # that names it has to ask the host instead of assuming ~/.rune.
 config_file = config_path()
 config_file_ref = ("(`" + config_file + "`)") if config_file else ""
 
 # Buffer motion and layout direction are separate systems. The file explorer
-# uses each editor's native movement, while layout commands use HJKL in modal
+# uses each editor's native movement, while layout commands use HJKL in vim
 # and helix mode, IJKL in standard mode, and PNBF in Emacs mode.
-if mode == "modal":
+if mode == "vim":
     dir_phrase = "the home row, `h` `j` `k` `l`"
     completer_pick_phrase = "`<ctrl-j>` / `<ctrl-k>` (or `<up>` / `<down>`)"
     completer_move_phrase = ("press `<ctrl-j>` to move down the list and " +
@@ -148,7 +148,7 @@ resize_key_row = " | ".join([
 # Use the rightward one so every mode ends up with the same layout.
 split_window_args = ["right"] if mode == "emacs" else []
 
-if mode == "modal":
+if mode == "vim":
     layout_pattern_md = """\
 ## HJKL controls the layout
 

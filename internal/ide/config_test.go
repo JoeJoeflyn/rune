@@ -440,9 +440,9 @@ func assertDefaultConfig(t *testing.T, cfg *ideConfig) {
 	assert.Equal(t, term.Attributes{}, cfg.standardAttr())
 	assert.Equal(t, cfg.standardResultAttr(), cfg.emacsResultAttr())
 	assert.Equal(t, term.Attributes{}, cfg.emacsMessageBarAttr())
-	assert.Equal(t, term.Attributes{}, cfg.modalMessageBarAttr())
+	assert.Equal(t, term.Attributes{}, cfg.vimMessageBarAttr())
 	assert.Equal(t, cfg.standardAttr(), cfg.emacsAttr())
-	assert.Equal(t, term.Attributes{}, cfg.modalAttr())
+	assert.Equal(t, term.Attributes{}, cfg.vimAttr())
 	assert.True(t, cfg.autoRestore())
 	assert.Equal(t, "  ", cfg.tabNameSeparator())
 	assert.Equal(t, 90, cfg.editorRuler())
@@ -457,7 +457,7 @@ func assertDefaultConfig(t *testing.T, cfg *ideConfig) {
 	assert.Equal(t, expectedSyntaxConfig, syntaxConfig)
 	assert.Empty(t, cfg.editorComments())
 
-	assert.Equal(t, "modal", cfg.editorMode())
+	assert.Equal(t, "vim", cfg.editorMode())
 	os.Setenv("SHELL", "fish")
 }
 
@@ -815,8 +815,13 @@ func TestTerminalModalDefaultFromEditorMode(t *testing.T) {
 		want   bool
 	}{
 		{"unset editor defaults modal", nil, true},
-		{"modal", map[string]any{"mode": "modal"}, true},
+		{"vim", map[string]any{"mode": "vim"}, true},
+		{"deprecated modal", map[string]any{"mode": "modal"}, true},
 		{"modeless", map[string]any{"mode": "modeless"}, false},
+		{"exo fallback vim", map[string]any{
+			"mode": "exo",
+			"exo":  map[string]any{"command": "vim {file}", "fallback": "vim"},
+		}, true},
 		{"exo fallback modal", map[string]any{
 			"mode": "exo",
 			"exo":  map[string]any{"command": "vim {file}", "fallback": "modal"},
@@ -844,17 +849,17 @@ func TestTerminalModalDefaultFromEditorMode(t *testing.T) {
 	assert.True(t, cfg.terminalModal())
 
 	cfg = &ideConfig{cfg: map[string]any{
-		"editor":   map[string]any{"mode": "modal"},
+		"editor":   map[string]any{"mode": "vim"},
 		"terminal": map[string]any{"modal": false},
 	}, errors: map[string]error{}}
 	assert.False(t, cfg.terminalModal())
 }
 
-// TestEditorModeNormalizesModelessToStandard pins that editorMode()
-// resolves the deprecated "modeless" alias and the new "standard"
-// value to editorModeStandard, while modal/exo/emacs pass through and
-// an unknown mode falls back to modal.
-func TestEditorModeNormalizesModelessToStandard(t *testing.T) {
+// TestEditorModeNormalizesDeprecatedAliases pins that editorMode()
+// resolves the deprecated "modeless" and "modal" aliases to "standard"
+// and "vim", while the canonical modes pass through and an unknown mode
+// falls back to vim.
+func TestEditorModeNormalizesDeprecatedAliases(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
 		want string
@@ -862,16 +867,18 @@ func TestEditorModeNormalizesModelessToStandard(t *testing.T) {
 		{"modeless", editorModeStandard},
 		{"standard", editorModeStandard},
 		{"emacs", editorModeEmacs},
-		{"modal", editorModeModal},
+		{"vim", editorModeVim},
+		{"modal", editorModeVim},
 		{"helix", editorModeHelix},
 		{"exo", editorModeExo},
-		{"bogus", editorModeModal},
+		{"bogus", editorModeVim},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			cfg := &ideConfig{cfg: map[string]any{
 				"editor": map[string]any{"mode": tc.mode},
 			}, errors: map[string]error{}}
 			assert.Equal(t, tc.want, cfg.editorMode())
+			assert.Empty(t, cfg.errors, "a deprecated alias is not a config error")
 		})
 	}
 }
@@ -902,6 +909,7 @@ func TestHelixIsAModalEditorMode(t *testing.T) {
 		mode string
 		want bool
 	}{
+		{editorModeVim, true},
 		{editorModeModal, true},
 		{editorModeHelix, true},
 		{editorModeStandard, false},
@@ -1254,7 +1262,7 @@ func TestConfigSetting(t *testing.T) {
 			Fg:    term.ColorSilver,
 			Attrs: term.AttrItalic,
 		},
-	}, cfg.modalMessageBarLayout())
+	}, cfg.vimMessageBarLayout())
 	expectedLSPIcons := idelsp.IconSet{
 		idelsp.IconDiagnosticError:       "E",
 		idelsp.IconDiagnosticWarning:     "W",
@@ -1544,7 +1552,7 @@ func TestConfigSetting(t *testing.T) {
 	assert.Equal(t, expectedPrompt, cfg.promptConfig())
 
 	assert.Equal(t, term.Attributes{Bg: term.ColorRed,
-		Fg: term.GetColor("#f0f0f0")}, cfg.modalResultAttr())
+		Fg: term.GetColor("#f0f0f0")}, cfg.vimResultAttr())
 
 	assert.Equal(t, term.Attributes{Bg: term.ColorRed,
 		Fg: term.GetColor("#f1f1f1")}, cfg.standardResultAttr())
@@ -1553,7 +1561,7 @@ func TestConfigSetting(t *testing.T) {
 	assert.Equal(t, term.Attributes{Bg: term.ColorTeal,
 		Fg: term.ColorWhite}, cfg.emacsMessageBarAttr())
 	assert.Equal(t, term.Attributes{Bg: term.ColorNavy,
-		Fg: term.ColorSilver}, cfg.modalMessageBarAttr())
+		Fg: term.ColorSilver}, cfg.vimMessageBarAttr())
 
 	expectedSyntaxConfig := syntax.DefaultConfig()
 	expectedSyntaxConfig.Autoindent = false
@@ -1570,9 +1578,9 @@ func TestConfigSetting(t *testing.T) {
 	assert.Equal(t, term.Attributes{Bg: term.ColorBlue,
 		Fg: term.GetColor("#f8f8f8")}, cfg.emacsAttr())
 	assert.Equal(t, term.Attributes{Bg: term.ColorYellow,
-		Fg: term.GetColor("#f2f2f2")}, cfg.modalAttr())
+		Fg: term.GetColor("#f2f2f2")}, cfg.vimAttr())
 
-	assert.Equal(t, "modal", cfg.editorMode())
+	assert.Equal(t, "vim", cfg.editorMode())
 	os.Setenv("SHELL", "")
 
 	wantMappings := map[handler.Sequence][][]string{
@@ -1841,8 +1849,13 @@ func TestShellEditorModalFromEditorMode(t *testing.T) {
 		want   bool
 	}{
 		{"unset editor defaults modal", nil, true},
-		{"modal", map[string]any{"mode": "modal"}, true},
+		{"vim", map[string]any{"mode": "vim"}, true},
+		{"deprecated modal", map[string]any{"mode": "modal"}, true},
 		{"modeless", map[string]any{"mode": "modeless"}, false},
+		{"exo fallback vim", map[string]any{
+			"mode": "exo",
+			"exo":  map[string]any{"command": "vim {file}", "fallback": "vim"},
+		}, true},
 		{"exo fallback modal", map[string]any{
 			"mode": "exo",
 			"exo":  map[string]any{"command": "vim {file}", "fallback": "modal"},

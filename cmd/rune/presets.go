@@ -31,7 +31,7 @@ var presetHelixYAML string
 var presetEmacsYAML string
 
 // renderPreset returns the preset-config file body for the given
-// editor choice and telemetry preference. The modal choice enables vim
+// editor choice and telemetry preference. The vim choice enables vim
 // mode everywhere; the helix choice uses Helix's selection-first grammar
 // with its <space> leader menu; the standard choice uses platform-native
 // standard editor bindings; the emacs choice uses an Emacs keymap. The
@@ -39,7 +39,7 @@ var presetEmacsYAML string
 func renderPreset(editor string, telemetry bool) (string, error) {
 	var body string
 	switch editor {
-	case editorModal:
+	case editorVim:
 		body = presetModalYAML
 	case editorHelix:
 		body = presetHelixYAML

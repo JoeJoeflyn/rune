@@ -37,7 +37,7 @@ place:
 
 ```python title="config.star"
 # `config` already holds Rune's defaults; mutate what you need.
-config["editor"]["mode"] = "modal"
+config["editor"]["mode"] = "vim"
 
 for key in ["<ctrl-h>", "<ctrl-l>"]:
     config["command"]["key_bindings"][key] = "tabnext"
@@ -108,14 +108,19 @@ editor as another option. Pick one with `editor.mode`:
 
 ```yaml tab
 editor:
-  mode: "emacs" # or "standard", "modal", "helix", or "exo"
+  mode: "emacs" # or "standard", "vim", "helix", or "exo"
 ```
 
 ```python tab
 "editor": {
-    "mode": "emacs", # or "standard", "modal", "helix", or "exo"
+    "mode": "emacs", # or "standard", "vim", "helix", or "exo"
 },
 ```
+
+The older `"modal"` and `"modeless"` values still work as deprecated aliases
+for `"vim"` and `"standard"`, and the vim editor's settings section may still
+be spelled `editor.modal` instead of `editor.vim`. Switch to the new names when
+you next edit your config.
 
 The five supported configurations are:
 
@@ -228,9 +233,9 @@ that ships with Rune is the file explorer
 make sense. Picking the right fallback keeps those buffers feeling like
 the editor you chose:
 
-- `editor.exo.fallback: "modal"` keeps those buffers modal. Use it when your
-  external editor is Vim or Neovim, so a keystroke like `j`/`k` keeps its vi
-  meaning across the whole UI.
+- `editor.exo.fallback: "vim"` keeps those buffers in the vim editor. Use it
+  when your external editor is Vim or Neovim, so a keystroke like `j`/`k` keeps
+  its vi meaning across the whole UI.
 - `editor.exo.fallback: "helix"` keeps those buffers on Helix's
   selection-first grammar. Use it when your external editor is Helix, so a
   keystroke like `w`/`e` keeps its Helix meaning across the whole UI.

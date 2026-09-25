@@ -38,7 +38,7 @@ func WithSyntaxParser(parser syntaxapi.Parser) Option {
 	}
 }
 
-// WithEditorMode sets the resolved editor mode ("modal", "helix",
+// WithEditorMode sets the resolved editor mode ("vim", "helix",
 // "standard", "emacs") exposed to package config.star scripts as the
 // RUNE_EDITOR_MODE predeclared global. Empty values are not forwarded.
 func WithEditorMode(mode string) Option {

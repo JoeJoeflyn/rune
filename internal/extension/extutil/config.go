@@ -208,7 +208,7 @@ func Editor(clipboard clipboard.Register, cfg config.Config) (text.Editor, error
 		return nil, err
 	}
 	switch mode {
-	case "modal":
+	case "vim":
 		return viEditor(clipboard), nil
 	case "helix":
 		return helixEditor(clipboard), nil
@@ -220,7 +220,7 @@ func Editor(clipboard clipboard.Register, cfg config.Config) (text.Editor, error
 			return nil, err
 		}
 		switch fallback {
-		case "modal":
+		case "vim":
 			return viEditor(clipboard), nil
 		case "helix":
 			return helixEditor(clipboard), nil
@@ -244,14 +244,14 @@ func EditorModal(cfg config.Config) (bool, error) {
 		return false, err
 	}
 	switch mode {
-	case "modal", "helix":
+	case "vim", "helix":
 		return true, nil
 	case "exo":
 		fallback, err := exoFallback(cfg)
 		if err != nil {
 			return false, err
 		}
-		return fallback == "modal" || fallback == "helix", nil
+		return fallback == "vim" || fallback == "helix", nil
 	default:
 		return false, nil
 	}
@@ -327,27 +327,39 @@ func Wrap(cfg config.Config) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	modeConfig, err := edConfig.GetConfig(mode)
-	if err != nil {
-		if err != config.ErrNotFound {
-			err = fmt.Errorf("failed to get '%s' from editor config: %v", mode, err)
-			return false, err
-		}
-		return def, nil
+	// The vim editor's settings were named editor.modal before editor.mode
+	// "modal" became "vim". An editor that predates the rename serves only
+	// that spelling, so fall back to it.
+	sections := []string{mode}
+	if mode == "vim" {
+		sections = []string{"vim", "modal"}
 	}
-
-	wrap, err := modeConfig.GetBool("wrap")
-	if err != nil {
-		if err != config.ErrNotFound {
-			err = fmt.Errorf("failed to get 'wrap' from editor config: %v", err)
-			return false, err
+	for _, section := range sections {
+		modeConfig, err := edConfig.GetConfig(section)
+		if err != nil {
+			if err != config.ErrNotFound {
+				err = fmt.Errorf("failed to get '%s' from editor config: %v", section, err)
+				return false, err
+			}
+			continue
 		}
+		wrap, err := modeConfig.GetBool("wrap")
+		if err != nil {
+			if err != config.ErrNotFound {
+				err = fmt.Errorf("failed to get 'wrap' from editor config: %v", err)
+				return false, err
+			}
+			continue
+		}
+		return wrap, nil
 	}
-	return wrap, nil
+	return def, nil
 }
 
+// editorMode resolves editor.mode to its canonical spelling, mapping the
+// deprecated "modal" and "modeless" aliases to "vim" and "standard".
 func editorMode(cfg config.Config) (string, error) {
-	def := "modal"
+	def := "vim"
 	edConfig, err := cfg.GetConfig("editor")
 	if err != nil {
 		if err != config.ErrNotFound {
@@ -365,7 +377,10 @@ func editorMode(cfg config.Config) (string, error) {
 		}
 		mode = def
 	}
-	if mode == "modeless" {
+	switch mode {
+	case "modal":
+		return "vim", nil
+	case "modeless":
 		return "standard", nil
 	}
 	return mode, nil
@@ -374,8 +389,9 @@ func editorMode(cfg config.Config) (string, error) {
 // exoFallback returns the Rune-native fallback editor used when
 // editor.mode is "exo". The full external editor is not viable inside
 // an extension process, so compose input uses this fallback. Valid
-// values are "modal", "helix", "standard", or "emacs"; the deprecated
-// "modeless" alias resolves to "standard". Defaults to "standard".
+// values are "vim", "helix", "standard", or "emacs"; the deprecated
+// "modal" and "modeless" aliases resolve to "vim" and "standard".
+// Defaults to "standard".
 func exoFallback(cfg config.Config) (string, error) {
 	def := "standard"
 	edConfig, err := cfg.GetConfig("editor")
@@ -403,8 +419,10 @@ func exoFallback(cfg config.Config) (string, error) {
 	}
 
 	switch fallback {
-	case "modal", "helix", "standard", "emacs":
+	case "vim", "helix", "standard", "emacs":
 		return fallback, nil
+	case "modal":
+		return "vim", nil
 	case "modeless":
 		return "standard", nil
 	}

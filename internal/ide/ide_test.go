@@ -2772,8 +2772,8 @@ func (r testRunner) WaitReady(ctx context.Context, id string) error {
 // guard against exoeditor.New panics when the user's config selects
 // `editor.mode = "exo"` but does not supply both required fields
 // (`editor.exo.command` containing {file}, and `editor.exo.goto`).
-// validateExo rewrites the mode back to "modal" so the IDE boots
-// with the built-in modal editor; this test asserts that the
+// validateExo rewrites the mode back to "vim" so the IDE boots
+// with the built-in vim editor; this test asserts that the
 // rewrite actually happens at the config layer so the workspace
 // handler never reaches exoeditor.New on a misconfigured input.
 //
@@ -2853,7 +2853,7 @@ func TestIDEExoMisconfigurationFallsBackToDefault(t *testing.T) {
 			// the post-load ideConfig before any workspace
 			// handler reaches exoeditor.New. init() must not panic
 			// for any of these inputs: validateExo rewrites
-			// the mode back to "modal" before the workspace
+			// the mode back to "vim" before the workspace
 			// handler instantiates the editor.
 			i := new(IDE)
 			require.NotPanics(t, func() {
@@ -2875,9 +2875,9 @@ func TestIDEExoMisconfigurationFallsBackToDefault(t *testing.T) {
 				"after validateExo, editor.mode must not "+
 					"remain exo; got %q",
 				i.ideConfig.editorMode())
-			assert.Equal(t, "modal", i.ideConfig.editorMode(),
+			assert.Equal(t, "vim", i.ideConfig.editorMode(),
 				"validateExo falls back to the safe "+
-					"default mode (modal); a different "+
+					"default mode (vim); a different "+
 					"value means the validator regressed "+
 					"or a new code path skipped the "+
 					"rewrite")
@@ -2889,7 +2889,7 @@ func TestIDEExoMisconfigurationFallsBackToDefault(t *testing.T) {
 
 // TestIDEExoWellFormedConfigDoesNotFallBack guards against an
 // over-eager validateExo that would rewrite legitimate exo
-// configurations back to "modal". This is the positive
+// configurations back to "vim". This is the positive
 // counterexample to TestIDEExoMisconfigurationFallsBackToDefault.
 func TestIDEExoWellFormedConfigDoesNotFallBack(t *testing.T) {
 	configFile, _ := makeTestFiles(t)

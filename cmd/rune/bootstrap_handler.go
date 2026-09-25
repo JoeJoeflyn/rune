@@ -850,7 +850,7 @@ func (b *bootstrapHandler) Close() error {
 }
 
 const (
-	editorModal    = "modal"
+	editorVim      = "vim"
 	editorHelix    = "helix"
 	editorStandard = "standard"
 	editorEmacs    = "emacs"
@@ -1105,7 +1105,7 @@ func optionToChoice(option string) string {
 	case optHelix:
 		return editorHelix
 	}
-	return editorModal
+	return editorVim
 }
 
 func telemetryOptionToChoice(option string) bool {

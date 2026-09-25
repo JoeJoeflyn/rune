@@ -3419,7 +3419,7 @@ else:
 		mode    string
 		wantMod string
 	}{
-		{"modal", "other"},
+		{"vim", "other"},
 		{"standard", "standard"},
 	}
 	for _, tc := range cases {

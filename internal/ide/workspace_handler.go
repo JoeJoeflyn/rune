@@ -330,7 +330,7 @@ func (h *workspaceManagerHandler) newEditor(
 	terminal schemeapi.Terminal, cfg ideConfig, svc vctrl.Service,
 ) (text.Editor, error) {
 	switch cfg.editorMode() {
-	case editorModeModal:
+	case editorModeVim:
 		return h.newBuiltinModalEditor(cwd, cfg, svc), nil
 	case editorModeHelix:
 		return h.newBuiltinHelixEditor(cwd, cfg, svc), nil
@@ -353,16 +353,16 @@ func (h *workspaceManagerHandler) newBuiltinModalEditor(
 	iconsBarConfig := cfg.iconsBarConfig(h)
 	statusBarConfig := cfg.statusBarConfig(cwd, h, svc)
 	viOpts := append([]vi.Option{},
-		vi.WithResAttr(cfg.modalResultAttr()),
-		vi.WithBarAttr(cfg.modalMessageBarAttr()),
-		vi.WithMessageBarLayout(cfg.modalMessageBarLayout()),
+		vi.WithResAttr(cfg.vimResultAttr()),
+		vi.WithBarAttr(cfg.vimMessageBarAttr()),
+		vi.WithMessageBarLayout(cfg.vimMessageBarLayout()),
 		vi.WithTabspaces(cfg.editorTabspaces()),
 		vi.WithIndents(cfg.editorIndents()),
 		vi.WithRuler(cfg.editorRuler()),
 		vi.WithAutoPair(cfg.editorAutoPair()),
 		vi.WithComments(cfg.editorComments()),
 		vi.WithScheduleNextTick(cfg.scheduleNextTick),
-		vi.WithAttr(cfg.modalAttr()),
+		vi.WithAttr(cfg.vimAttr()),
 		vi.WithAuxiliaryBar(cfg.auxiliaryBarEnabled(), auxBarConfig),
 		vi.WithIconsBar(cfg.iconsBarEnabled(), iconsBarConfig),
 		vi.WithGitIcons(cfg.gitIconsEnabled()),
@@ -536,7 +536,7 @@ func (h *workspaceManagerHandler) newPromptEditor(
 			clipboard:        h.clip,
 			autoPair:         cfg.editorAutoPair(),
 		}
-	case editorModeModal:
+	case editorModeVim:
 		return viPromptEditor{
 			tabspaces:        cfg.editorTabspaces(),
 			indents:          cfg.editorIndents(),
@@ -1565,7 +1565,7 @@ func (h *workspaceManagerHandler) textOpts(
 		}
 	}
 
-	if cfg.editorMode() == editorModeModal {
+	if cfg.editorMode() == editorModeVim {
 		for seq, cmd := range vi.KeyBindings() {
 			if seq.Last != (term.KeyComb{}) {
 				ret = append(ret, text.WithCommandSequenceBinding(seq, cmd))

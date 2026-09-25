@@ -19,7 +19,7 @@ mode = editor_mode()
 # Keep the arrows as a universal fallback while naming each preset's
 # completion bindings. Helix's own pickers walk their list with
 # <ctrl-n> / <ctrl-p>, the pair Rune's pickers share with Emacs.
-if mode == "modal":
+if mode == "vim":
     move_phrase = "`<ctrl-j>` / `<ctrl-k>` (or `<up>` / `<down>`)"
 elif mode == "emacs" or mode == "helix":
     move_phrase = "`<ctrl-p>` / `<ctrl-n>` (or `<up>` / `<down>`)"

@@ -181,7 +181,7 @@ func TestBasicsTutorialCompleterKeysByMode(t *testing.T) {
 		expected  []string
 		forbidden []string
 	}{
-		{mode: "modal", expected: []string{"<ctrl-j>", "<ctrl-k>", "<up>", "<down>"}},
+		{mode: "vim", expected: []string{"<ctrl-j>", "<ctrl-k>", "<up>", "<down>"}},
 		{
 			mode:      "standard",
 			expected:  []string{"<up>", "<down>"},
@@ -240,7 +240,7 @@ tutorial(entry=run)
 func TestBasicsTutorialWarnsAboutTheSwallowedShiftTab(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{"modal", "helix", "standard", "emacs"} {
+	for _, mode := range []string{"vim", "helix", "standard", "emacs"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			src := withoutTutorialCall(t, basicsTutorial) + `
@@ -269,7 +269,7 @@ tutorial(entry=run)
 
 			text := tut.ActiveText()
 			require.Contains(t, text, "<shift-tab>")
-			if mode == "modal" || mode == "helix" {
+			if mode == "vim" || mode == "helix" {
 				assert.Contains(t, text, "NORMAL mode")
 				return
 			}
@@ -407,8 +407,8 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 		contains []string
 	}{
 		{
-			name: "modal",
-			mode: "modal",
+			name: "vim",
+			mode: "vim",
 			contains: []string{
 				"HJKL controls the layout",
 				"Hold <meta> and press HJKL",
@@ -512,7 +512,7 @@ func TestBasicsTutorialLayoutIntro(t *testing.T) {
 				assert.Contains(t, rendered, expected)
 			}
 			assert.NotContains(t, rendered, "standard and Emacs")
-			if tt.mode != "modal" && tt.mode != "helix" {
+			if tt.mode != "vim" && tt.mode != "helix" {
 				assert.NotContains(t, rendered, "Hold <alt> with h or l",
 					"only the vim and helix presets bind the <alt> tab pair")
 			}
@@ -621,7 +621,7 @@ func TestBasicsTutorialHelixKeysMatchPreset(t *testing.T) {
 		want bool
 	}{
 		{mode: "helix", want: true},
-		{mode: "modal", want: false},
+		{mode: "vim", want: false},
 		{mode: "standard", want: false},
 		{mode: "emacs", want: false},
 	}
@@ -669,10 +669,10 @@ func TestBasicsTutorialModalSurfacesNote(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			mode: "modal",
+			mode: "vim",
 			contains: []string{
-				"You picked **modal** editor mode",
-				"in modal mode every input surface is modal",
+				"You picked **vim** editor mode",
+				"in vim mode every input surface is modal",
 				"switch back to NORMAL mode with `<esc>`",
 			},
 		},
@@ -683,7 +683,7 @@ func TestBasicsTutorialModalSurfacesNote(t *testing.T) {
 				"in helix mode every input surface is modal",
 				"switch back to NORMAL mode with `<esc>`",
 			},
-			forbidden: []string{"**modal** editor mode"},
+			forbidden: []string{"**vim** editor mode"},
 		},
 		{mode: "standard", forbidden: []string{"You picked", "NORMAL mode"}},
 		{mode: "emacs", forbidden: []string{"You picked", "NORMAL mode"}},
@@ -1213,7 +1213,7 @@ func TestAgentTutorialLeavesInsertModeFirst(t *testing.T) {
 		mode string
 		esc  bool
 	}{
-		{mode: "modal", esc: true},
+		{mode: "vim", esc: true},
 		{mode: "helix", esc: true},
 		{mode: "standard", esc: false},
 		{mode: "emacs", esc: false},
@@ -1460,7 +1460,7 @@ func TestNavigationTutorialPrefillKeysMatchPresets(t *testing.T) {
 			preset:  presetEmacsYAML,
 		},
 		{
-			mode:    "modal",
+			mode:    "vim",
 			jumpKey: "<alt-f>",
 			defKey:  "<alt-shift-d>",
 			preset:  presetModalYAML,
@@ -1518,7 +1518,7 @@ func TestNavigationTutorialFinderPickerKeysByMode(t *testing.T) {
 		down      string
 		forbidden []string
 	}{
-		{mode: "modal", up: "<ctrl-k>", down: "<ctrl-j>"},
+		{mode: "vim", up: "<ctrl-k>", down: "<ctrl-j>"},
 		{
 			mode:      "standard",
 			up:        "<up>",
@@ -1849,7 +1849,7 @@ func TestShippedTutorialsParseInEveryMode(t *testing.T) {
 		"agent":      "13",
 	}
 	for name, src := range shippedTutorials() {
-		for _, mode := range []string{"modal", "helix", "standard", "emacs"} {
+		for _, mode := range []string{"vim", "helix", "standard", "emacs"} {
 			t.Run(name+"/"+mode, func(t *testing.T) {
 				t.Parallel()
 				tut, err := starlarktutorial.New(

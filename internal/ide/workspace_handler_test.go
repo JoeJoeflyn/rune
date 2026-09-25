@@ -176,7 +176,7 @@ func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 		mode     string
 		readOnly bool
 	}{
-		{name: "modal", mode: editorModeModal},
+		{name: "vim", mode: editorModeVim},
 		{name: "standard", mode: editorModeStandard},
 		{name: "standard read-only", mode: editorModeStandard, readOnly: true},
 	}
@@ -236,7 +236,7 @@ func TestFileExplorerEnterDelegatesIntegration(t *testing.T) {
 			require.Greater(t, beforeRows, 0)
 
 			switch tc.mode {
-			case editorModeModal:
+			case editorModeVim:
 				// Bug repro: enter search mode and type a query.
 				_, handled := h.Handle(term.Event{
 					Type: term.EventKey, Ch: '/',
@@ -436,7 +436,7 @@ func TestGitlinkIntegration(t *testing.T) {
 		t.Skip("git binary not available")
 	}
 
-	for _, mode := range []string{editorModeModal, editorModeStandard} {
+	for _, mode := range []string{editorModeVim, editorModeStandard} {
 		t.Run(mode, func(t *testing.T) {
 			dir, commit, relFile := setupGitlinkRepo(t)
 
@@ -5688,7 +5688,7 @@ func defaultCfg() ideConfig {
 func defaultConfigWithWrap(wrap bool) ideConfig {
 	ret := defaultCfg()
 	ret.cfg["editor"] = map[string]any{
-		"modal": map[string]any{
+		editorSectionVim: map[string]any{
 			"wrap": wrap,
 		},
 	}

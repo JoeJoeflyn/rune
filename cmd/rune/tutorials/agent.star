@@ -22,7 +22,7 @@ mode = editor_mode()
 
 # A focused console is in INSERT mode under a modal editor, so the
 # command key would be typed into the shell line instead.
-if mode == "modal" or mode == "helix":
+if mode == "vim" or mode == "helix":
     shell_esc_step = "1. Press `<esc>` to go back to NORMAL mode.\n\n"
     shell_prompt_step_num = "2"
     shell_run_step_num = "3"

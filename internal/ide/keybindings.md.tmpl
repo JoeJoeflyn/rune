@@ -11,7 +11,7 @@
 
 In the keys below, `<meta>` is {{.MetaKey}}.
 
-{{- if eq .EditorMode "modal"}}
+{{- if eq .EditorMode "vim"}}
 
 These are your command key bindings. In-buffer editing keys come from the
 vim editor and are documented in the
@@ -43,7 +43,7 @@ No key bindings configured.
 {{- template "section" .}}
 {{- end}}
 {{- end}}
-{{- if eq .EditorMode "modal"}}
+{{- if eq .EditorMode "vim"}}
 
 ## Macros
 

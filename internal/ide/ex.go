@@ -177,8 +177,8 @@ type ex struct {
 	// editorModeModal records whether the editor backing this ex runs in
 	// modal mode. The cheatsheet uses it to gate modal-only key tips.
 	editorModeModal bool
-	// editorMode is the resolved editor mode (modal, standard, emacs, or
-	// exo). The cheatsheet uses it to describe the active editor; unlike
+	// editorMode is the resolved editor mode (vim, helix, standard, emacs,
+	// or exo). The cheatsheet uses it to describe the active editor; unlike
 	// editorModeModal it preserves the exo distinction.
 	editorMode string
 	// editorAutoSave records whether the editor flushes buffers

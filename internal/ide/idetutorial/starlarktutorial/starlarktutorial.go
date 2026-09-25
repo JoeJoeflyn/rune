@@ -87,7 +87,7 @@ type Tutorial struct {
 	// raw term.KeyComb, so a new render site cannot reintroduce the ugly
 	// spec.
 	commandKeyDisplay string
-	// editorMode is the user's resolved editor mode ("modal",
+	// editorMode is the user's resolved editor mode ("vim",
 	// "helix", "standard", or "emacs"), exposed to the DSL via
 	// editor_mode(). exo is resolved to its fallback by the host before
 	// New.
