@@ -359,3 +359,30 @@ func TestCompleteDialogueIDsShowsNamedID(t *testing.T) {
 	assert.ElementsMatch(t,
 		[]string{"fix the flaky test (rolling-fox)", "quiet-owl"}, got)
 }
+
+func TestChatsRenameSubcommand(t *testing.T) {
+	ctx := context.Background()
+	store := newRenameTestStore(dialoguemanager.Dialogue{ID: "rolling-fox"})
+	var retitled []string
+	s := &shell{
+		store: store,
+		retitleTab: func(_ context.Context, id string) {
+			retitled = append(retitled, id)
+		},
+	}
+
+	it, err := s.handleChats(ctx, []string{"rename", "rolling-fox", "fix", "flaky"})
+	require.NoError(t, err)
+	_ = it.Close()
+
+	d, err := store.Get(ctx, "rolling-fox")
+	require.NoError(t, err)
+	assert.Equal(t, "fix flaky", d.Title)
+	assert.Equal(t, []string{"rolling-fox"}, retitled)
+}
+
+func TestChatsRenameUsageError(t *testing.T) {
+	s := &shell{store: newRenameTestStore()}
+	_, err := s.handleChats(context.Background(), []string{"rename"})
+	assert.ErrorContains(t, err, "usage: chats rename")
+}
