@@ -19,6 +19,7 @@ package vte
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -1295,6 +1296,55 @@ func TestComponentResizeAfterCloseSkipsSetPtySize(t *testing.T) {
 	defer exe.mu.Unlock()
 	assert.Empty(t, exe.setPtySize,
 		"a closed Component must not ioctl its released master descriptor")
+}
+
+// closablePtyFile fails writes after Close the way an *os.File does.
+type closablePtyFile struct {
+	workspacetest.File
+	closed bool
+}
+
+func (f *closablePtyFile) Write(b []byte) (int, error) {
+	if f.closed {
+		return 0, os.ErrClosed
+	}
+	return f.File.Write(b)
+}
+
+func (f *closablePtyFile) Close() error {
+	f.closed = true
+	return nil
+}
+
+type closablePtyExecutor struct {
+	testExecutor
+	master closablePtyFile
+}
+
+func (e *closablePtyExecutor) NewPty(context.Context) (workspaceapi.Pty, error) {
+	return workspaceapi.Pty{Master: &e.master, Slave: &workspacetest.File{}}, nil
+}
+
+// TestComponentOnFocusChangeAfterClose reproduces the "failed to report
+// focus changed: write to pty: file already closed" toast shown when
+// closing a terminal whose program enabled focus reporting: the tab is
+// unfocused after its handler was already closed.
+func TestComponentOnFocusChangeAfterClose(t *testing.T) {
+	t.Parallel()
+
+	exe := &closablePtyExecutor{}
+	comp, err := NewComponent(exe, exe, &mockTabManager{}, DefaultConfig())
+	require.NoError(t, err)
+	comp.parserHandler.SetPrivateMode(vteparser.PrivateModeReportFocusInOut)
+
+	require.NoError(t, comp.OnFocusChange(true))
+	require.Equal(t, [][]byte{[]byte("\x1b[I")}, exe.master.Writes)
+
+	require.NoError(t, comp.Close())
+	require.NoError(t, comp.OnFocusChange(false),
+		"unfocusing a closed terminal is a no-op, not a failure")
+	assert.Len(t, exe.master.Writes, 1,
+		"a closed Component must not write to its released master")
 }
 
 // parkedStartExecutor parks inside StartCommand, standing in for the

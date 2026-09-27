@@ -679,6 +679,11 @@ func (t *Component) Selection() (data string, ok bool) {
 
 // OnFocusChange allows clients to report whether this vte.Component is on focus or not.
 func (t *Component) OnFocusChange(inFocus bool) error {
+	// Closing a tab releases the master before the browser unfocuses it,
+	// so there is no program left to report to.
+	if t.closed.Load() {
+		return nil
+	}
 	t.mu.Lock()
 	cmd, ok := t.parserHandler.onFocusChange(inFocus)
 	t.mu.Unlock()
