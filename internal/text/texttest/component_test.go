@@ -2411,7 +2411,7 @@ func TestComponentPendingTabs(t *testing.T) {
 	}
 	// contentOf renders tab into text, one line per row.
 	contentOf := func(t *testing.T, tab *browser.Tab) string {
-		const width, height = 60, 4
+		const width, height = 48, 9
 		tab.Resize(width, height)
 		w := cell.NewBufferWriter(context.Background(), width, height)
 		tab.Draw(w)
@@ -2441,8 +2441,17 @@ func TestComponentPendingTabs(t *testing.T) {
 		name, _, ok := c.Browser().TabName(uri)
 		require.True(t, ok)
 		assert.Equal(t, "chat", name)
-		assert.Contains(t, contentOf(t, tab),
-			"Waiting for an extension to open fake://host/chat")
+		assert.Equal(t, strings.Join([]string{
+			"                                                ",
+			"                                                ",
+			"                                                ",
+			"    Waiting for the owning extension to open    ",
+			"    fake://host/chat                            ",
+			"                                                ",
+			"                                                ",
+			"                                                ",
+			"                                                ",
+		}, "\n")+"\n", contentOf(t, tab), "the message must be centered")
 		assert.Same(t, tab, c.PendingTabs().Open(uri, 'Q', "again"),
 			"a second placeholder must not be created for an open URI")
 	})
@@ -2510,7 +2519,8 @@ func TestComponentPendingTabs(t *testing.T) {
 		require.True(t, c.PendingTabs().Fail(uri, errors.New("boom")))
 
 		content := contentOf(t, tab)
-		assert.Contains(t, content, "Could not open fake://host/chat")
+		assert.Contains(t, content, "Could not open")
+		assert.Contains(t, content, "fake://host/chat")
 		assert.Contains(t, content, "boom")
 		assert.True(t, c.PendingTabs().Contains(uri))
 		assert.Equal(t, []workspaceapi.URI{uri, other}, c.PendingTabs().URIs(scheme))

@@ -25,15 +25,10 @@ import (
 	"github.com/unstablebuild/rune-go-sdk/component"
 	"github.com/unstablebuild/rune-go-sdk/term"
 	"unstable.build/rune/internal/browser"
-	"unstable.build/rune/internal/cell"
 	"unstable.build/rune/internal/debug"
-	thandler "unstable.build/rune/internal/handler"
 )
 
-var (
-	_ browserapi.Handler   = (*pendingHandler)(nil)
-	_ component.Scrollable = (*pendingHandler)(nil)
-)
+var _ browserapi.Handler = (*pendingHandler)(nil)
 
 // pendingHandler is the content of a tab restored before the extension
 // owning its URI's scheme registered a resource opener. It tells the user
@@ -41,11 +36,10 @@ var (
 // content the extension opened for the URI takes its place through
 // PendingTabs.Replace.
 type pendingHandler struct {
-	uri    workspaceapi.URI
-	buf    *cell.Buffer
-	less   thandler.Less
-	width  int
-	height int
+	uri     workspaceapi.URI
+	message *component.ResponsiveString
+	width   int
+	height  int
 	// done is closed once the tab no longer waits, which stops its
 	// loading spinner.
 	done     chan struct{}
@@ -53,22 +47,23 @@ type pendingHandler struct {
 }
 
 func newPendingHandler(uri workspaceapi.URI) *pendingHandler {
-	h := &pendingHandler{
-		uri:  uri,
-		buf:  cell.NewBuffer(),
-		done: make(chan struct{}),
-	}
-	h.less.InitWithBuffer(h.buf, thandler.LessConfig{})
-	h.buf.WriteString(fmt.Sprintf(
-		"Waiting for an extension to open %s\n", uri))
+	h := &pendingHandler{uri: uri, done: make(chan struct{})}
+	h.show(fmt.Sprintf("Waiting for the owning extension to open\n%s", uri))
 	return h
 }
 
 // fail shows err as the reason the tab could not be opened.
 func (h *pendingHandler) fail(err error) {
-	h.buf.Reset()
-	h.buf.WriteString(fmt.Sprintf("Could not open %s\n\n%v\n", h.uri, err))
+	h.show(fmt.Sprintf("Could not open\n%s\n\n%v", h.uri, err))
 	h.settle()
+}
+
+func (h *pendingHandler) show(message string) {
+	h.message = component.NewResponsiveString(message, component.StringResponsiveConfig{
+		NoSplitWords: true,
+		StringConfig: component.StringConfig{Alignment: component.AlignmentCentered},
+	})
+	h.message.Resize(h.width, h.height)
 }
 
 func (h *pendingHandler) settle() {
@@ -84,37 +79,22 @@ func (h *pendingHandler) Close() error {
 
 func (h *pendingHandler) Resize(width, height int) {
 	h.width, h.height = width, height
-	h.less.Resize(width, height)
+	h.message.Resize(width, height)
 }
 
 func (h *pendingHandler) Dimensions() (width, height int) {
 	return h.width, h.height
 }
 
-func (h *pendingHandler) Draw(w term.Writer) { h.less.Draw(w) }
+func (h *pendingHandler) Draw(w term.Writer) { h.message.Draw(w) }
 
 func (h *pendingHandler) Cursor() (term.Coordinates, term.CursorStyle, bool) {
-	if h.less.Mode() != thandler.LessSearchMode {
-		return term.Coordinates{}, term.CursorStyleDefault, false
-	}
-	return h.less.Cursor()
+	return term.Coordinates{}, term.CursorStyleDefault, false
 }
 
-func (h *pendingHandler) Selection() (string, bool) { return h.less.Selection() }
+func (h *pendingHandler) Selection() (string, bool) { return "", false }
 
-func (h *pendingHandler) Handle(ev term.Event) (exit, handled bool) {
-	return h.less.Handle(ev)
-}
-
-func (h *pendingHandler) SeekUp() bool { return h.less.Scroll().SeekUp() }
-
-func (h *pendingHandler) SeekDown() bool { return h.less.Scroll().SeekDown() }
-
-func (h *pendingHandler) SeekOffset() int { return h.less.Scroll().SeekOffset() }
-
-func (h *pendingHandler) MaxSeekOffset() int {
-	return h.less.Scroll().MaxSeekOffset()
-}
+func (h *pendingHandler) Handle(term.Event) (exit, handled bool) { return false, false }
 
 // PendingTabs are the tabs a session restored before the extension owning
 // their URI's scheme registered a resource opener. Each shows a placeholder
