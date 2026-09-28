@@ -180,11 +180,13 @@ func DrawLocations(locations []textapi.Location, scroll *component.Scroll, w ter
 			fromAtScrollX = 0
 		}
 		toAtScroll.Y = int(math.Min(float64(buffer.Rows()-1), float64(toAtScroll.Y)))
-		for y := fromAtScroll.Y; y < toAtScroll.Y; y++ {
+		// Rows past maxY map below the scroll, where Less superimposes
+		// its message and search bar.
+		for y := fromAtScroll.Y; y < toAtScroll.Y && y <= maxY; y++ {
 			toX := buffer.Columns(y)
 			for x := fromAtScrollX; x < toX; x++ {
 				posAtScreen, ok := scroll.ScrollToWindowCoordinates(term.Coordinates{Y: y, X: x})
-				if posAtScreen.X >= scroll.Width() {
+				if posAtScreen.X >= scroll.Width() || posAtScreen.Y >= height {
 					break
 				}
 				if !ok || posAtScreen.X < 0 {
@@ -201,7 +203,7 @@ func DrawLocations(locations []textapi.Location, scroll *component.Scroll, w ter
 		toX := toAtScroll.X
 		for x := fromAtScrollX; x < toX; x++ {
 			posAtScreen, ok := scroll.ScrollToWindowCoordinates(term.Coordinates{Y: toAtScroll.Y, X: x})
-			if posAtScreen.X >= scroll.Width() {
+			if posAtScreen.X >= scroll.Width() || posAtScreen.Y >= height {
 				break
 			}
 			if !ok || posAtScreen.X < 0 {

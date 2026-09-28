@@ -18,6 +18,7 @@ package text
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -589,4 +590,34 @@ func TestCursorDrawLocationListsIntegration(t *testing.T) {
 		DrawLocations(c.SortedLocations(), c.scroll, w)
 		assert.Equal(t, expected, w.RawCells())
 	})
+
+	// A superimposed message or search bar is drawn right below the
+	// scroll, so a location spanning past the viewport must not paint it.
+	for _, wrap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("does not render multi-line location below viewport (wrap=%t)", wrap), func(t *testing.T) {
+			c := setupCursorContent(t, 1, 5, "a\nb\nc\nd\ne\nf\ng\n", false)
+			c.scroll.Wrap = wrap
+			c.scroll.Resize(1, 3)
+
+			locations := []textapi.Location{
+				{
+					From: term.Coordinates{Y: 0},
+					To:   term.Coordinates{Y: 6, X: 1},
+					Attr: abcAttr,
+				},
+			}
+			assert.Nil(t, c.SetLocationList(textapi.LocationPriorityInfo, locID, LocationSlice(locations)))
+
+			expected := [][]term.Cell{
+				{term.NewCell(0, 0, abcAttr)},
+				{term.NewCell(0, 0, abcAttr)},
+				{term.NewCell(0, 0, abcAttr)},
+				{{}},
+				{{}},
+			}
+			w := cell.NewBufferWriter(context.Background(), 1, 5)
+			DrawLocations(c.SortedLocations(), c.scroll, w)
+			assert.Equal(t, expected, w.RawCells())
+		})
+	}
 }
