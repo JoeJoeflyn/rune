@@ -78,7 +78,7 @@ func TestBasicsTutorialParses(t *testing.T) {
 
 	assert.Equal(t, "basics", tut.ID())
 	assert.Equal(t, "Rune basics", tut.Title())
-	assert.Equal(t, "71", tut.Version())
+	assert.Equal(t, "72", tut.Version())
 }
 
 // TestBasicsTutorialWorkspaceOpenCopyByOS asserts the welcome window's
@@ -1031,12 +1031,6 @@ func TestBasicsTutorialDirectionalCommandFlow(t *testing.T) {
 	observe("windowmove", "right")
 	observe("windowmove", "left")
 
-	wait("wait_command")
-	tut.ObserveCommand("windowresize", "windowresize",
-		[]string{"increase", "height"}, nil)
-	observe("windowresize", "increase", "width")
-	observe("windowresize", "decrease", "width")
-
 	observe("windowtogglemaximize")
 	// The close lesson teaches closing, not focusing: whichever window
 	// the user happens to be on, one windowclose has to move it along.
@@ -1127,8 +1121,6 @@ func TestBasicsTutorialEmacsWindowFlow(t *testing.T) {
 	observe("windowfocus", "left")
 	observe("windowmove", "right")
 	observe("windowmove", "left")
-	observe("windowresize", "increase", "width")
-	observe("windowresize", "decrease", "width")
 	observe("windowtogglemaximize")
 	wait("wait_command")
 	assert.Equal(t, "Close a window", tut.ActiveTitle())
@@ -1842,7 +1834,7 @@ func TestShippedTutorialsParseInEveryMode(t *testing.T) {
 	t.Parallel()
 
 	versions := map[string]string{
-		"basics":     "71",
+		"basics":     "72",
 		"navigation": "27",
 		"agent":      "13",
 	}

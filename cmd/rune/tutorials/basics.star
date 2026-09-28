@@ -394,30 +394,6 @@ Do both, in order:
 2. Then move it back to the left: """ + keypress("windowmove", "left") + """.
 """
 
-resize_direction_md = ("""\
-Window resizing keeps the IJKL directions: `I` makes the window taller, `J`
-narrower, `K` shorter, and `L` wider.
-""" if mode == "standard" else ("""\
-Emacs mode keeps resize on host-Meta arrows instead of taking more editing
-letters: up makes the window taller, left narrower, down shorter, and right
-wider. These work from terminals as well as editors.
-""" if mode == "emacs" else """\
-Window resizing uses matching arrow directions: up makes the window taller,
-left narrower, down shorter, and right wider.
-"""))
-
-resize_window_md = resize_direction_md + """
-
-- `windowresize increase width` makes the focused window wider.""" + keyhint("windowresize", "increase", "width") + """
-- `windowresize decrease width` makes it narrower.""" + keyhint("windowresize", "decrease", "width") + """
-
-Do both, in order:
-
-1. Make the window wider: """ + keypress("windowresize", "increase", "width") + """.
-
-2. Then make it narrower again: """ + keypress("windowresize", "decrease", "width") + """.
-"""
-
 fullscreen_window_md = """\
 When you want to focus on one window, `windowtogglemaximize` grows it
 to fill the whole editor area. Run it again, or focus another window,
@@ -704,21 +680,6 @@ def teach_move_window():
     )
 
 
-def teach_resize_window():
-    wait_expected_command(
-        title         = "Resize a window",
-        command       = "windowresize",
-        expected_args = ["increase", "width"],
-        text          = resize_window_md,
-    )
-    wait_expected_command(
-        title         = "Resize a window",
-        command       = "windowresize",
-        expected_args = ["decrease", "width"],
-        text          = resize_window_md,
-    )
-
-
 def teach_fullscreen_window():
     wait_command(
         title   = "Fullscreen a window",
@@ -864,7 +825,6 @@ def run():
     teach_terminal_split()
     teach_focus_window()
     teach_move_window()
-    teach_resize_window()
     teach_fullscreen_window()
     teach_close_window()
     teach_emacs_close_others()
@@ -878,4 +838,4 @@ def run():
     teach_cheatsheet()
 
 
-tutorial(id = "basics", title = "Rune basics", version = "71", entry = run)
+tutorial(id = "basics", title = "Rune basics", version = "72", entry = run)
