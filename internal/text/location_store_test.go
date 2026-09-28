@@ -620,4 +620,57 @@ func TestCursorDrawLocationListsIntegration(t *testing.T) {
 			assert.Equal(t, expected, w.RawCells())
 		})
 	}
+
+	attrRow := []term.Cell{term.NewCell(0, 0, abcAttr), term.NewCell(0, 0, abcAttr)}
+	blankRow := []term.Cell{{}, {}}
+	for _, tc := range []struct {
+		name     string
+		content  string
+		wrap     bool
+		loc      textapi.Location
+		expected [][]term.Cell
+	}{
+		{
+			name:    "renders location on last visible line wrapping past viewport",
+			content: "a\nb\ncdef\ng\n",
+			wrap:    true,
+			loc: textapi.Location{
+				From: term.Coordinates{Y: 2},
+				To:   term.Coordinates{Y: 2, X: 4},
+				Attr: abcAttr,
+			},
+			expected: [][]term.Cell{blankRow, blankRow, attrRow, blankRow, blankRow},
+		},
+		{
+			name:    "does not render location on line below viewport",
+			content: "a\nb\nc\nde\n",
+			loc: textapi.Location{
+				From: term.Coordinates{Y: 3},
+				To:   term.Coordinates{Y: 3, X: 2},
+				Attr: abcAttr,
+			},
+			expected: [][]term.Cell{blankRow, blankRow, blankRow, blankRow, blankRow},
+		},
+		{
+			name:    "does not render location on line below viewport (wrap)",
+			content: "a\nb\nc\nde\n",
+			wrap:    true,
+			loc: textapi.Location{
+				From: term.Coordinates{Y: 3},
+				To:   term.Coordinates{Y: 3, X: 2},
+				Attr: abcAttr,
+			},
+			expected: [][]term.Cell{blankRow, blankRow, blankRow, blankRow, blankRow},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := setupCursorContent(t, 2, 3, tc.content, tc.wrap)
+			assert.Nil(t, c.SetLocationList(textapi.LocationPriorityInfo, locID,
+				LocationSlice([]textapi.Location{tc.loc})))
+
+			w := cell.NewBufferWriter(context.Background(), 2, 5)
+			DrawLocations(c.SortedLocations(), c.scroll, w)
+			assert.Equal(t, tc.expected, w.RawCells())
+		})
+	}
 }

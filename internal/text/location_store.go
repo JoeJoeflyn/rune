@@ -166,11 +166,14 @@ func DrawLocations(locations []textapi.Location, scroll *component.Scroll, w ter
 	buffer := scroll.Buffer()
 
 	minY := scroll.WindowToScrollCoordinates(term.Coordinates{}).Y
+	// maxY is the line on the row just below the scroll. When wrapping,
+	// that row can continue the last visible line, so maxY itself may
+	// still be partly shown.
 	maxY := scroll.WindowToScrollCoordinates(term.Coordinates{Y: height}).Y
 	for _, loc := range locations {
 		fromAtScroll := loc.From
 		toAtScroll := loc.To
-		if fromAtScroll.Y >= maxY || toAtScroll.Y < minY {
+		if fromAtScroll.Y > maxY || toAtScroll.Y < minY {
 			continue
 		}
 
