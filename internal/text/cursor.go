@@ -4674,6 +4674,12 @@ func (c *Cursor) selectionOp(fn func(string) string) (ok bool) {
 	return
 }
 
+// SearchAttr is the attribute search matches are drawn with: the
+// ResultsAttr the scroll carried when this cursor was initialized.
+func (c *Cursor) SearchAttr() term.Attributes {
+	return c.searchAttr
+}
+
 func (c *Cursor) setSearchLocationList(text string, word bool) int {
 	c.search = text
 	n := c.scroll.Search(text)

@@ -358,15 +358,24 @@ func (h *helixHandlerImpl) setSearchPattern(pattern string) {
 	h.highlightMatches(pattern)
 }
 
+// litSearch is the pattern the search highlight shows and the edit
+// count and row count of the document it was computed over.
+type litSearch struct {
+	pattern string
+	edits   uint64
+	rows    int
+}
+
 // highlightMatches lights every occurrence of the search pattern up
 // the way the less search does for a literal. Helix has no such
 // highlight; it is the one the rest of Rune's editors show.
 func (h *helixHandlerImpl) highlightMatches(pattern string) {
+	h.lit = litSearch{pattern: pattern, edits: h.rec.edits, rows: h.buf().Rows()}
 	var locs []textapi.Location
 	if re, err := compilePattern(pattern); err == nil && pattern != "" {
 		all := h.matches(re)
 		d := h.doc()
-		attr := h.less.Scroll().ResultsAttr
+		attr := h.cursor.SearchAttr()
 		for _, m := range all {
 			if m[1] == m[0] {
 				continue
@@ -375,6 +384,16 @@ func (h *helixHandlerImpl) highlightMatches(pattern string) {
 		}
 	}
 	h.cursor.SetLocationList(textapi.LocationPriorityInfo, searchLocID, locationsOrNil(locs))
+}
+
+// refreshHighlight recomputes the search highlight once the document
+// has changed under it. It runs at draw time so a burst of edits,
+// such as typing in insert mode, scans the document once per frame.
+func (h *helixHandlerImpl) refreshHighlight() {
+	if h.lit.pattern == "" || (h.lit.edits == h.rec.edits && h.lit.rows == h.buf().Rows()) {
+		return
+	}
+	h.highlightMatches(h.lit.pattern)
 }
 
 // searchNext is search_next and search_prev, and their extend variants
