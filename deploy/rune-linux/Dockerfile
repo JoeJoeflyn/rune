@@ -21,7 +21,7 @@ ARG RUNE_ENV=prod
 # GO_VERSION pins the Go toolchain installed from the official tarball. buster
 # ships no usable system Go, and the tarball links only a low glibc so it runs
 # fine on buster. Keep in sync with go.mod's go directive.
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.27.1
 
 WORKDIR /src
 

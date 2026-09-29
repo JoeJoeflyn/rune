@@ -23,7 +23,7 @@ jobs:
       - uses: ./.github/actions/setup-build
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.11.3
+          version: v2.14.0
           args: --timeout=600s
       - name: Run gohawk
         run: go run github.com/kojah/gohawk@v0.3.5 -json -enable-all -disable=exitpolicy,goroutineownership,lockorder,processownership ./...

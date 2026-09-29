@@ -692,7 +692,7 @@ notary-credentials:
 # context excludes .git, and a git worktree's .git is a file pointing
 # outside the context anyway.
 PKG_OUT ?= $(TARGET)/pkg
-PKG_GO_VERSION ?= 1.26.6
+PKG_GO_VERSION ?= 1.27.1
 DEB_BASE_IMAGE ?= debian:bookworm
 # archlinux is published for amd64 only. Emulating it is not viable:
 # the Go toolchain segfaults under qemu-user, so the full Arch build
