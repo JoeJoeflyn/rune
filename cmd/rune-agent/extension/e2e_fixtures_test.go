@@ -55,6 +55,7 @@ type recordingWindowManager struct {
 	gotIcon    rune
 	gotName    string
 	gotHandler browserapi.Handler
+	gotWindow  browserapi.Window
 
 	setContentCalls int
 
@@ -89,8 +90,9 @@ func (m *recordingWindowManager) Tab(
 	m.gotHandler = h
 	return h, nil
 }
-func (m *recordingWindowManager) SetWindowContent(_ browserapi.Window, _ browserapi.Handler) error {
+func (m *recordingWindowManager) SetWindowContent(w browserapi.Window, _ browserapi.Handler) error {
 	m.setContentCalls++
+	m.gotWindow = w
 	return nil
 }
 func (m *recordingWindowManager) CloseWindow(_ browserapi.Window) error { return nil }
