@@ -80,7 +80,7 @@ RELEASE_FILES=$(wildcard release/*)
 .PHONY: debug clean test test-e2e coverage generate rune rune-agent \
 	format cross-compile lint license assert_license dist \
 	rune-release rune-release-amd64 rune-release-arm64 rune-make-release \
-	rune-app-delve \
+	rune-app-delve rune-app-linux rune-install-linux \
 	rune-linux-cross-compile rune-app-amd64 rune-app-arm64 \
 	rune-staging-app-arm64 \
 	rune-dmg rune-dmg-amd64 rune-dmg-notarize rune-dmg-amd64-notarize rune-release-all \
@@ -329,6 +329,12 @@ FORCE:
 
 rune-linux-cross-compile:
 	@$(MAKE) -C cmd/rune linux-cross-compile
+
+rune-app-linux:
+	@$(MAKE) -C cmd/rune app-linux
+
+rune-install-linux:
+	@$(MAKE) -C cmd/rune install-linux
 
 rune-release-linux-amd64:
 	@$(MAKE) -C cmd/rune release-linux-amd64

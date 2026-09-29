@@ -73,6 +73,33 @@ wrap it) works by:
 
 ## Build commands
 
+For local development on Linux, build and install without Docker:
+
+```bash
+make rune-app-linux       # detect the host arch; build the bundle and tarball
+make rune-install-linux   # build, then install under ~/.local (no sudo)
+```
+
+The bundle is built at `target/rune_linux_<arch>/rune.app`. Installation
+replaces `~/.local/rune.app`, links `~/.local/bin/rune` to its executable,
+and installs the desktop entry and icons under `~/.local/share`. Add
+`~/.local/bin` to your `PATH` for CLI use; the desktop launcher does not
+require it. Existing Rune configuration is left untouched.
+
+Override the installation location with an absolute prefix:
+
+```bash
+make rune-install-linux PREFIX=/absolute/path/to/prefix
+```
+
+Native builds require Go, GCC, binutils (`objdump`), and the development
+libraries required by the GUI build installed on the host. They inherit
+the host's glibc requirement and are intended for local use, not portable
+releases. Neither target publishes a release or uses Docker.
+
+To exercise the installer and target wiring without building Rune or
+touching your installation, run `sh deploy/rune-linux/install-test.sh`.
+
 Cross-compile for `linux/amd64` (default):
 
 ```bash

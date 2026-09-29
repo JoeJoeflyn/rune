@@ -14,6 +14,8 @@ RUNE_LINUX_RELEASE_TAR ?= rune-release-$(RUNE_LINUX_TARGET_OS)-$(RUNE_LINUX_TARG
 # emulation); other combinations must use the default Docker cross-compile
 # release targets.
 HOST_ARCH := $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+# Match the user-local layout used by Rune's updater.
+PREFIX ?= $(HOME)/.local
 # DARWIN_AMD64_MIN_MACOS is the minimum macOS the Intel build supports. It
 # is threaded into the cgo toolchain (-mmacosx-version-min) and the app
 # bundle's LSMinimumSystemVersion (extra/osx/Info.amd64.plist) so the Intel
@@ -133,7 +135,7 @@ endif
 
 .PHONY: clean make-release release release-amd64 release-arm64 app-amd64 app-arm64 dmg dmg-amd64 dmg-notarize dmg-amd64-notarize release-all \
 	linux-cross-compile \
-	make-release-linux \
+	make-release-linux app-linux install-linux \
 	release-linux-amd64 release-linux-arm64 \
 	release-linux-amd64-native release-linux-arm64-native \
 	release-linux-amd64-cross release-linux-arm64-cross \
@@ -344,6 +346,13 @@ app-delve:
 	@echo "Created debug-enabled '$(APP_NAME)' in '$(APP_DIR)'"
 	@echo "Attach with: dlv attach \$$(pgrep -n rune)"
 endif
+
+app-linux: RUNE_LINUX_TARGET_ARCH = $(HOST_ARCH)
+app-linux: make-release-linux
+
+install-linux: RUNE_LINUX_TARGET_ARCH = $(HOST_ARCH)
+install-linux: app-linux
+	@sh "$(ROOT_DIR)/deploy/rune-linux/install.sh" "$(RUNE_LINUX_OUTPUT_DIR)/rune.app" "$(PREFIX)"
 
 linux-cross-compile:
 	@rm -rf $(RUNE_LINUX_OUTPUT_DIR)
