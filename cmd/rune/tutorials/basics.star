@@ -52,6 +52,34 @@ else:
     completer_move_phrase = ("press `<down>` to move down the list and " +
                              "`<up>` to move up")
 
+# In-buffer search is an editor key, not a command, so key_for cannot
+# resolve it. Standard's find key is <meta-f>, with <ctrl-f> as a
+# permanent alias that Linux users expect. `theme` first matches the
+# config header comments, so every variant has to say to keep jumping.
+if modal_mode:
+    config_search_steps = """\
+   - Press `/`, type `theme`, and press `<enter>`.
+
+   - Press `n` to jump to the next match until the cursor reaches
+     `gui.default_theme`."""
+elif mode == "emacs":
+    config_search_steps = """\
+   - Press `<ctrl-s>` and type `theme`.
+
+   - Press `<ctrl-s>` again to jump to the next match until the cursor
+     reaches `gui.default_theme`.
+
+   - Press `<enter>` to leave the search with the cursor there."""
+else:
+    find_key = "<meta-f>" if os() == "darwin" else "<ctrl-f>"
+    config_search_steps = """\
+   - Press `""" + find_key + """` and type `theme`.
+
+   - Press `<enter>` to jump to the next match until the cursor reaches
+     `gui.default_theme`.
+
+   - Press `<esc>` to close the search with the cursor there."""
+
 def completer_steps(what):
     # Sub-steps of an auto-completer step: typing and moving the
     # selection are alternatives, not an order to follow.
@@ -576,9 +604,13 @@ def config_edit_md(theme):
 lives there. Everything else is commented out at Rune's own defaults,
 so reading the file is how you find what is tunable.
 
-1. Scroll to `gui.default_theme` and set it to `""" + theme + """`.
+1. Find the theme setting:
 
-2. Save the file: """ + keypress("write") + """.
+""" + config_search_steps + """
+
+2. Set `gui.default_theme` to `""" + theme + """`.
+
+3. Save the file: """ + keypress("write") + """.
 """
 
 config_done_md = """\
@@ -838,4 +870,4 @@ def run():
     teach_cheatsheet()
 
 
-tutorial(id = "basics", title = "Rune basics", version = "72", entry = run)
+tutorial(id = "basics", title = "Rune basics", version = "73", entry = run)

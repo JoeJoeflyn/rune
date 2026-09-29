@@ -78,7 +78,7 @@ func TestBasicsTutorialParses(t *testing.T) {
 
 	assert.Equal(t, "basics", tut.ID())
 	assert.Equal(t, "Rune basics", tut.Title())
-	assert.Equal(t, "72", tut.Version())
+	assert.Equal(t, "73", tut.Version())
 }
 
 // TestBasicsTutorialWorkspaceOpenCopyByOS asserts the welcome window's
@@ -228,6 +228,86 @@ tutorial(entry=run)
 					assert.NotContains(t, text, key, "%s step", step)
 				}
 				tut.ObserveEvent("open", "file:///workspace/a.go")
+			}
+		})
+	}
+}
+
+// TestBasicsTutorialConfigSearchByPreset asserts the config step teaches
+// each preset's own in-buffer search keys. Search is not a command, so
+// key_for cannot resolve it and the copy must branch on mode and OS.
+func TestBasicsTutorialConfigSearchByPreset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mode      string
+		os        string
+		expected  []string
+		forbidden []string
+	}{
+		{
+			name:      "vim",
+			mode:      "vim",
+			os:        "linux",
+			expected:  []string{"`/`", "`n`", "theme"},
+			forbidden: []string{"<ctrl-s>", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "helix",
+			mode:      "helix",
+			os:        "linux",
+			expected:  []string{"`/`", "`n`", "theme"},
+			forbidden: []string{"<ctrl-s>", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "emacs",
+			mode:      "emacs",
+			os:        "linux",
+			expected:  []string{"<ctrl-s>", "<enter>"},
+			forbidden: []string{"`/`", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "standard/darwin",
+			mode:      "standard",
+			os:        "darwin",
+			expected:  []string{"<meta-f>", "<enter>", "<esc>"},
+			forbidden: []string{"<ctrl-f>", "<ctrl-s>"},
+		},
+		{
+			name:      "standard/linux",
+			mode:      "standard",
+			os:        "linux",
+			expected:  []string{"<ctrl-f>", "<enter>", "<esc>"},
+			forbidden: []string{"<meta-f>", "<ctrl-s>"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, basicsTutorial) + `
+def run():
+    wait_event(event = "flush", text = config_edit_md("mullen"))
+tutorial(entry=run)
+`
+			tut, err := starlarktutorial.New(
+				"basics-config-search", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, tt.os,
+				nil, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			require.True(t, tut.WaitActive("wait_event", time.Second))
+
+			text := tut.ActiveText()
+			for _, s := range append([]string{"gui.default_theme", "mullen"}, tt.expected...) {
+				assert.Contains(t, text, s)
+			}
+			for _, s := range tt.forbidden {
+				assert.NotContains(t, text, s)
 			}
 		})
 	}
@@ -1834,7 +1914,7 @@ func TestShippedTutorialsParseInEveryMode(t *testing.T) {
 	t.Parallel()
 
 	versions := map[string]string{
-		"basics":     "72",
+		"basics":     "73",
 		"navigation": "27",
 		"agent":      "13",
 	}
