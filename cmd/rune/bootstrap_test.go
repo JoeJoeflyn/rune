@@ -114,50 +114,48 @@ func TestRenderPreset(t *testing.T) {
 		"the helix choice must switch the editor into helix")
 	require.Contains(t, hx, "enabled: true",
 		"telemetry=true must render enabled: true")
-	for _, binding := range []string{
-		`"<space>f": searchfile`,
-		`"<space>e": fexplorer`,
-		`"<space>b": tabsearch`,
-		`"<space>/": searchtext`,
-		`"<ctrl-w>v": "windownew right"`,
+	hxKeys := decodeKeyBindings(t, "helix preset", []byte(hx))
+	for key, cmd := range map[string]string{
+		"<space>f":  "searchfile",
+		"<space>e":  "fexplorer",
+		"<space>b":  "tabsearch",
+		"<space>/":  "searchtext",
+		"<ctrl-w>v": "windownew right",
 	} {
-		require.Contains(t, hx, binding,
-			"helix must reach commands through its <space> and <ctrl-w> menus")
+		require.Equalf(t, cmd, hxKeys[key],
+			"helix must reach commands through its <space> and <ctrl-w> menus: %s", key)
 	}
-	require.NotContains(t, hx, `"<alt-d>"`,
-		"helix keeps <alt> for its own grammar")
-	require.Contains(t, ema, `"<meta-f>": "windowfocus right"`,
+	require.NotContains(t, hxKeys, "<alt-d>", "helix keeps <alt> for its own grammar")
+	emaKeys := decodeKeyBindings(t, "emacs preset", []byte(ema))
+	require.Equal(t, "windowfocus right", emaKeys["<meta-f>"],
 		"emacs must use the PNBF direction layer for window focus")
-	require.Contains(t, ema, `"<ctrl-x>u": "undo prefix"`,
+	require.Equal(t, "undo prefix", emaKeys["<ctrl-x>u"],
 		"emacs must expose GNU's C-x u undo alias")
-	for _, binding := range []string{
-		`"<meta-d>": "windownew down"`,
-		`"<meta-r>": "windownew right"`,
-		`"<meta-k>": windowclose`,
-		`"<shift-meta-k>": windowcloseall`,
-		`"<meta-m>": windowtogglemaximize`,
-		`"<meta-o>": fexplorer`,
-		`"<meta-left>": "windowresize decrease width"`,
+	for key, cmd := range map[string]string{
+		"<meta-d>":       "windownew down",
+		"<meta-r>":       "windownew right",
+		"<meta-k>":       "windowclose",
+		"<shift-meta-k>": "windowcloseall",
+		"<meta-m>":       "windowtogglemaximize",
+		"<meta-o>":       "fexplorer",
+		"<meta-left>":    "windowresize decrease width",
 	} {
-		require.Contains(t, ema, binding,
-			"emacs layout bindings must remain reachable from terminals")
+		require.Equalf(t, cmd, emaKeys[key],
+			"emacs layout bindings must remain reachable from terminals: %s", key)
 	}
 	// A focused terminal eats C-x, so the GNU lifecycle chords may only ever
 	// duplicate a <meta> binding, never be the sole way to reach a command.
 	for cx, meta := range map[string]string{
-		`"<ctrl-x>0": windowclose`:       `"<meta-k>": windowclose`,
-		`"<ctrl-x>1": windowcloseall`:    `"<shift-meta-k>": windowcloseall`,
-		`"<ctrl-x>2": "windownew down"`:  `"<meta-d>": "windownew down"`,
-		`"<ctrl-x>3": "windownew right"`: `"<meta-r>": "windownew right"`,
+		"<ctrl-x>0": "<meta-k>",
+		"<ctrl-x>1": "<shift-meta-k>",
+		"<ctrl-x>2": "<meta-d>",
+		"<ctrl-x>3": "<meta-r>",
 	} {
-		if strings.Contains(ema, cx) {
-			require.Contains(t, ema, meta,
+		if cmd, ok := emaKeys[cx]; ok {
+			require.Equalf(t, cmd, emaKeys[meta],
 				"%s must duplicate a <meta> binding, not replace it", cx)
 		}
 	}
-	require.NotContains(t, ema,
-		`"<meta-f>": "echo {prompt}jumptoast<space>locals.scm<space>`,
-		"the displaced function search binding must remain prompt-only")
 
 	_, err = renderPreset("bogus", keymeta.Super, true)
 	require.Error(t, err)

@@ -149,6 +149,14 @@ func presetKeyBindings(t *testing.T, name string) map[string]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return decodeKeyBindings(t, name, raw)
+}
+
+// decodeKeyBindings returns command.key_bindings of a preset body, with list
+// values formatted by fmt.Sprint, so a check does not depend on how the
+// preset quotes a command.
+func decodeKeyBindings(t *testing.T, name string, raw []byte) map[string]string {
+	t.Helper()
 	var cfg struct {
 		Command struct {
 			KeyBindings map[string]any `yaml:"key_bindings"`
