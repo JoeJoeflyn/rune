@@ -252,6 +252,7 @@ generate: GOPRIVATE=github.com/unstablebuild,unstable.build/*
 generate:
 	@ rm -rf **/*rpc*/*.pb.go
 	@ go generate ./...
+	@ cd cmd/rune/docs && npm run --silent keybindings
 
 license:
 	@ bluectl license LICENSE_HEADER `find . -name \*.go -not -path ./cmd/rune/docs/\* | grep -v gomock | grep -v .pb.go | xargs`
