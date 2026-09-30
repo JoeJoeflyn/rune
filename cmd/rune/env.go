@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -70,16 +71,71 @@ func startLoginShellPATHResolve(dataDir string) <-chan error {
 
 func setRuneBinPATH(dataDir, base string) error {
 	binDir := filepath.Join(dataDir, "bin")
-	if err := os.Setenv("PATH", prependPATH(binDir, base, os.PathListSeparator)); err != nil {
+	if err := os.Setenv("PATH", prependPATH(runtime.GOOS, binDir, base)); err != nil {
 		return fmt.Errorf("set env PATH: %w", err)
 	}
 	return nil
 }
 
-// prependPATH returns base with dir in front of it, joined by the list
-// separator sep.
-func prependPATH(dir, base string, sep rune) string {
-	return dir + string(sep) + base
+// prependPATH puts dir first in the goos PATH list base, dropping entries that
+// name dir: the resolved login PATH is inherited from a process whose PATH
+// already starts with dir. Other entries are kept verbatim, including empty
+// ones (the current directory on POSIX) and Windows quoting, which protects
+// entries containing the separator.
+func prependPATH(goos, dir, base string) string {
+	windows := goos == "windows"
+	sep := ":"
+	if windows {
+		sep = ";"
+	}
+	entries := []string{dir}
+	for _, e := range splitPATH(base, windows) {
+		if !samePATHDir(e, dir, windows) {
+			entries = append(entries, e)
+		}
+	}
+	return strings.Join(entries, sep)
+}
+
+// splitPATH splits list like filepath.SplitList does for the given syntax, but
+// keeps Windows quotes so entries can be joined back unchanged.
+func splitPATH(list string, windows bool) []string {
+	if list == "" {
+		return nil
+	}
+	if !windows {
+		return strings.Split(list, ":")
+	}
+	var entries []string
+	start, quoted := 0, false
+	for i := range len(list) {
+		switch list[i] {
+		case '"':
+			quoted = !quoted
+		case ';':
+			if !quoted {
+				entries = append(entries, list[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(entries, list[start:])
+}
+
+// samePATHDir reports whether the PATH entry names dir, comparing lexically
+// cleaned paths. Windows ignores quotes and case and accepts either slash.
+func samePATHDir(entry, dir string, windows bool) bool {
+	if entry == "" {
+		return false
+	}
+	if !windows {
+		return path.Clean(entry) == path.Clean(dir)
+	}
+	norm := func(p string) string {
+		p = strings.ReplaceAll(p, `"`, "")
+		return path.Clean(strings.ReplaceAll(p, `\`, "/"))
+	}
+	return strings.EqualFold(norm(entry), norm(dir))
 }
 
 func makePkgDirs(dataDir string) error {
