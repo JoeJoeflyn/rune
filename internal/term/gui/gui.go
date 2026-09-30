@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -87,7 +86,6 @@ type GUI struct {
 	enableTransparent bool
 	enableLigatures   bool
 	forceFullRepaint  bool
-	renderOffset      image.Point
 	cursorAttributes  term.Attributes
 	defaultAttr       term.Attributes
 	renderer          *renderer
@@ -275,8 +273,7 @@ func (g *GUI) Draw(screen *ebiten.Image) {
 		cells = g.links.overlay(cells)
 	}
 	g.renderer.Draw(screen, cells, g.writer.Images(), g.cursor.show,
-		g.cursor.pos, g.cursor.style, float64(g.renderOffset.X),
-		float64(g.renderOffset.Y))
+		g.cursor.pos, g.cursor.style)
 	g.needsRender = false
 	if g.printFPS {
 		ebitenutil.DebugPrint(screen, fmt.Sprintf("FPS: %0.2f", ebiten.ActualFPS()))

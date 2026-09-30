@@ -918,7 +918,6 @@ func buildGUIOptions(
 		gui.WithColumnWidthOffset(getGUIColumnWidthOffset(b, cfg)),
 		gui.WithLineHeightOffset(getGUILineHeightOffset(b, cfg)),
 		gui.WithScrollMultiplier(getGUIScrollMultiplier(b, cfg)),
-		gui.WithRenderOffset(0, 10),
 		gui.WithLigatures(getGUILigatures(b, cfg)),
 		gui.WithTransparentWindow(transparentWindow),
 		gui.WithBackgroundBlur(getGUIBackgroundBlur(b, cfg)),

@@ -238,16 +238,6 @@ func WithColumnWidthOffset(offset float64) Option {
 	}
 }
 
-// WithRenderOffset defines the render offset in pixels.
-// Default is no offset.
-func WithRenderOffset(x, y int) Option {
-	return func(g *GUI) error {
-		g.renderOffset.X = x
-		g.renderOffset.Y = y
-		return nil
-	}
-}
-
 // WithPrintFPS prints the current FPS in the resulting graphical screen.
 func WithPrintFPS(print bool) Option {
 	return func(g *GUI) error {
