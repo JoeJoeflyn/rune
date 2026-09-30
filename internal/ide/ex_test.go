@@ -8590,6 +8590,14 @@ func (v *testVte) Title() string {
 	return v.title
 }
 
+func (v *testVte) ExitErr() error {
+	return nil
+}
+
+func (v *testVte) CursorAtScroll() term.Coordinates {
+	return v.cursor
+}
+
 func newExForTestingTasks(t *testing.T) (testEx, *sync.Mutex, func()) {
 	mu := new(sync.Mutex)
 	opts := []text.Option{

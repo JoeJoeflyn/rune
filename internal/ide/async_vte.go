@@ -274,7 +274,13 @@ func (av *asyncVTE) Resize(width, height int) {
 
 func (av *asyncVTE) Handle(ev term.Event) (exit, handled bool) {
 	if av.real != nil {
-		return av.real.Handle(ev)
+		exit, handled = av.real.Handle(ev)
+		// The tab drops content that reports exit, which may
+		// happen before the vte asks for it through OnTabExit.
+		if exit && av.e.keepFailedTerminalTab(av.e.tabAliases.resolve(av.uri)) {
+			exit = false
+		}
+		return exit, handled
 	}
 	if ev.Type != term.EventKey {
 		return false, false
@@ -387,6 +393,20 @@ func (av *asyncVTE) Title() string {
 		return av.real.Title()
 	}
 	return asyncVTELoadingTitle
+}
+
+func (av *asyncVTE) ExitErr() error {
+	if av.real != nil {
+		return av.real.ExitErr()
+	}
+	return nil
+}
+
+func (av *asyncVTE) CursorAtScroll() term.Coordinates {
+	if av.real != nil {
+		return av.real.CursorAtScroll()
+	}
+	return term.Coordinates{}
 }
 
 func (av *asyncVTE) UsedAlternateBuffer() bool {
