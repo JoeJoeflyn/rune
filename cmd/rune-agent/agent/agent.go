@@ -1858,8 +1858,9 @@ Please provide your output in the following format:
 IMPORTANT: Do NOT use any tools. You MUST respond with ONLY the <summary>...</summary> block as your text output.`
 
 // cleanSummary strips the <analysis> scratchpad from the raw LLM output
-// and extracts the <summary> content. If no <summary> tags are found the
-// text is returned as-is (plain-text fallback).
+// and extracts the <summary> content, also when the closing tag is missing.
+// Without a <summary> tag the text is kept as a plain-text fallback. A
+// trailing run of </parameter> and </invoke> tags is always dropped.
 func cleanSummary(raw string) string {
 	text := reAnalysis.ReplaceAllString(raw, "")
 	if m := reSummary.FindStringSubmatch(text); len(m) >= 2 {
@@ -1925,8 +1926,15 @@ func Summarize(
 		return "", err
 	}
 	if done != nil && done.FinishReason == llmapi.FinishReasonLength {
-		return "", fmt.Errorf("summary truncated after %d output tokens; raise /max_tokens",
-			done.Usage.TokensReceived)
+		limit := "the provider's default output limit"
+		if maxOutputTokens > 0 {
+			limit = fmt.Sprintf("the %d-token output budget", maxOutputTokens)
+		}
+		advice := "raise /max_tokens"
+		if canRaise := llmarg.ValidateMaxOutputTokens(model, maxOutputTokens+1) == nil; !canRaise {
+			advice = "compact with a model that allows longer output"
+		}
+		return "", fmt.Errorf("summary truncated at %s; %s", limit, advice)
 	}
 	summary := cleanSummary(sb.String())
 	if summary == "" {

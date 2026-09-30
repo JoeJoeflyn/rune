@@ -1000,7 +1000,6 @@ func TestCompactDialogueRejectsTruncatedSummary(t *testing.T) {
 		responses: []mockResponse{{
 			chunks:       []string{"<summary>\n1. Primary Request: port the parser\n```go\nfunc parse("},
 			finishReason: llmapi.FinishReasonLength,
-			usage:        llmapi.Usage{TokensReceived: 8192},
 		}},
 	}
 	store := newMockStore()
@@ -1017,9 +1016,10 @@ func TestCompactDialogueRejectsTruncatedSummary(t *testing.T) {
 	store.data["d"] = d
 	store.mu.Unlock()
 
-	compacted, archivedID, err := CompactDialogue(context.Background(), svc, llmapi.ModelEntry{}, store, d)
+	compacted, archivedID, err := CompactDialogue(context.Background(), svc, llmapi.ModelEntry{}, store, d,
+		WithMaxOutputTokens(8192))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "summary truncated after 8192 output tokens")
+	assert.Contains(t, err.Error(), "summary truncated at the 8192-token output budget")
 	assert.Nil(t, compacted)
 	assert.Empty(t, archivedID)
 
@@ -4321,7 +4321,6 @@ func TestAutoCompact(t *testing.T) {
 				{
 					chunks:       []string{"<summary>\n1. Primary Request: port the parser\n```go\nfunc parse("},
 					finishReason: llmapi.FinishReasonLength,
-					usage:        llmapi.Usage{TokensReceived: 8192},
 				},
 				stopResponse("Kept going with full context"),
 			},
@@ -4666,6 +4665,64 @@ func TestSummarizeEmptySummaryReturnsError(t *testing.T) {
 			_, err := Summarize(context.Background(), svc, llmapi.ModelEntry{}, msgs, 0)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "empty summary")
+		})
+	}
+}
+
+// A truncated summary is rejected, and the error must name the limit that
+// was hit and only advise /max_tokens when the model accepts a larger one.
+func TestSummarizeTruncatedSummaryError(t *testing.T) {
+	sonnet := llmapi.ModelEntry{Provider: anthropic.LLMProvider, Name: anthropic.ClaudeSonnet4Dot5}
+	tests := []struct {
+		name      string
+		model     llmapi.ModelEntry
+		budget    int
+		want      string
+		wantRaise bool
+	}{
+		{
+			name:      "provider default limit",
+			want:      "summary truncated at the provider's default output limit",
+			wantRaise: true,
+		},
+		{
+			name:      "budget below the model ceiling",
+			model:     sonnet,
+			budget:    32768,
+			want:      "summary truncated at the 32768-token output budget",
+			wantRaise: true,
+		},
+		{
+			name:   "budget at the model ceiling",
+			model:  sonnet,
+			budget: 64000,
+			want:   "summary truncated at the 64000-token output budget; compact with a model that allows longer output",
+		},
+		{
+			name:  "model that rejects output overrides",
+			model: llmapi.ModelEntry{Provider: "codex", Name: "gpt-5"},
+			want:  "summary truncated at the provider's default output limit; compact with a model that allows longer output",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockService{responses: []mockResponse{{
+				chunks:       []string{"<summary>\n1. Primary Request"},
+				finishReason: llmapi.FinishReasonLength,
+			}}}
+			msgs := []llmapi.Message{
+				{Role: llmapi.RoleSystem, Content: "sys"},
+				{Role: llmapi.RoleUser, Content: "hello"},
+				{Role: llmapi.RoleAssistant, Content: "hi there"},
+			}
+			_, err := Summarize(context.Background(), svc, tt.model, msgs, tt.budget)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			if tt.wantRaise {
+				assert.Contains(t, err.Error(), "raise /max_tokens")
+			} else {
+				assert.NotContains(t, err.Error(), "/max_tokens")
+			}
 		})
 	}
 }

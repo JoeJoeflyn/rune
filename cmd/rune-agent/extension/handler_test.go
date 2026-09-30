@@ -271,6 +271,66 @@ func TestOpenResourceResumesChat(t *testing.T) {
 	}
 }
 
+// A chat's /compact runs through that chat's own agentshell, so the budget
+// set with /max_tokens in the chat must reach the summarize request.
+// Otherwise the summary falls back to the provider's default output cap
+// and a truncation error advising /max_tokens could never be acted on.
+func TestChatCompactUsesChatMaxOutputTokens(t *testing.T) {
+	const dialogueID = "rolling-fox"
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	store := newMemDialogueStore()
+	require.NoError(t, store.Create(ctx, dialoguemanager.Dialogue{
+		ID:    dialogueID,
+		Model: "test-model",
+		Messages: []llmapi.Message{
+			{Role: llmapi.RoleSystem, Content: "system"},
+			{Role: llmapi.RoleUser, Content: "question"},
+			{Role: llmapi.RoleAssistant, Content: "answer"},
+		},
+	}))
+	svc := llmtest.New(
+		[]llmapi.ModelEntry{{Provider: "test", Name: "test-model", ContextWindow: 128_000}},
+		llmtest.Response{Chunks: []string{"<summary>done</summary>"}},
+	)
+	fs := nopFileSystem{}
+	h := &aiEditorHandler{
+		ctx:            ctx,
+		llmSvc:         svc,
+		defaultModel:   "test-model",
+		dialogueStore:  store,
+		wm:             &recordingWindowManager{},
+		n:              stubNotifications{},
+		p:              term.NopInterrupter(),
+		config:         configedit.NopConfig(),
+		skillRegistry:  skills.NewRegistry(fs, dirURI(""), nil, nil),
+		toolRegistry:   agent.NewRegistry(),
+		agentsConfig:   agent.NewConfig([]agent.Definition{{ID: "default", AllowAny: true}}),
+		cwd:            dirURI(""),
+		fs:             fs,
+		memoryDataPath: t.TempDir(),
+	}
+	c, err := h.newChat(textapi.Command{Args: []string{dialogueID}}, workspaceapi.URI{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, c.content.Close()) })
+
+	ag, ok := h.openChatAgents.Load(dialogueID)
+	require.True(t, ok)
+	ag.(*agent.Agent).SetMaxOutputTokens(50_000)
+
+	c.content.Resize(frameWidth, frameHeight)
+	keys, err := term.ParseKeys("/compact<space>test/test-model<enter>")
+	require.NoError(t, err)
+	for _, k := range keys {
+		c.content.Handle(term.Event{Type: term.EventKey, Mod: k.Mod, Key: k.Key, Ch: k.Ch})
+	}
+
+	require.Eventually(t, func() bool { return len(svc.Requests()) > 0 },
+		5*time.Second, 10*time.Millisecond, "/compact never reached the LLM")
+	assert.Equal(t, 50_000, svc.Requests()[0].Request.MaxOutputTokens)
+}
+
 // TestE2ECtrlCDismissesSelectionPrompt drives the chat tab handler
 // end-to-end through the public handlertest.RunHandlerSequence API:
 // the user types "hi" and presses Enter, the scripted LLM emits an
