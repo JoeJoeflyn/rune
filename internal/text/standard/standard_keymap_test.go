@@ -292,6 +292,20 @@ func TestStandardKeymapDeletion(t *testing.T) {
 		assert.Equal(t, "bar", buf.String())
 	})
 
+	t.Run("ctrl-delete stops at a following empty line", func(t *testing.T) {
+		h, buf, _ := newStandardKeymapHandler(t, "one\n\ntwo", term.Coordinates{X: 2})
+		_, handled := h.Handle(term.Event{Type: term.EventKey, Mod: term.ModCtrl, Key: term.KeyDelete})
+		require.True(t, handled)
+		assert.Equal(t, "on\ntwo", buf.String())
+	})
+
+	t.Run("ctrl-delete on an empty line joins the next line", func(t *testing.T) {
+		h, buf, _ := newStandardKeymapHandler(t, "one\n\ntwo", term.Coordinates{Y: 1})
+		_, handled := h.Handle(term.Event{Type: term.EventKey, Mod: term.ModCtrl, Key: term.KeyDelete})
+		require.True(t, handled)
+		assert.Equal(t, "one\ntwo", buf.String())
+	})
+
 	t.Run("alt-backspace deletes word to the left", func(t *testing.T) {
 		h, buf, _ := newStandardKeymapHandler(t, "left middle right", term.Coordinates{X: 11})
 		_, handled := h.Handle(term.Event{Type: term.EventKey, Mod: term.ModAlt, Key: term.KeyBackspace})
