@@ -1,0 +1,43 @@
+// Copyright (C) 2017-2026 The Rune Authors
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or (at
+// your option) any later version.
+//
+// This program is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+//go:build !windows
+
+package debug
+
+import (
+	"os"
+	"os/signal"
+	"syscall"
+
+	log "github.com/sirupsen/logrus"
+)
+
+// StartPProfOnSignal installs a SIGUSR1 handler that, on the first
+// signal, starts a pprof HTTP server bound to a random localhost port
+// and logs the listening address at info level so the caller can find
+// it. Subsequent SIGUSR1 signals are ignored.
+func StartPProfOnSignal() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGUSR1)
+	go CapturePanicReport(func() {
+		<-ch
+		signal.Stop(ch)
+		if _, err := StartPProfHTTP("127.0.0.1:0"); err != nil {
+			log.Errorf("StartPProfOnSignal: %v", err)
+		}
+	})
+}
