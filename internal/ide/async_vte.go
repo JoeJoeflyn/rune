@@ -18,7 +18,6 @@ package ide
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 
 	"github.com/unstablebuild/rune-go-sdk/api/browserapi"
@@ -54,26 +53,35 @@ var _ vtereservoir.VTE = (*asyncVTE)(nil)
 // exists after the spawn completes. Aliases map the vte URI to the
 // tab key so those updates reach the tab.
 //
-// SetTabName is called from vte parser goroutines, so the alias table
-// is mutex-guarded.
+// Everything but SetTabName must be called on the host event loop,
+// which owns the alias table.
 type tabNameAliaser struct {
 	browser.TabManager
-	mu    sync.Mutex
+	sched func(func()) bool
 	alias map[string]workspaceapi.URI
 }
 
-func newTabNameAliaser(tm browser.TabManager) *tabNameAliaser {
+func newTabNameAliaser(
+	tm browser.TabManager, sched func(func()) bool,
+) *tabNameAliaser {
 	return &tabNameAliaser{
 		TabManager: tm,
+		sched:      sched,
 		alias:      make(map[string]workspaceapi.URI),
 	}
 }
 
-// SetTabName satisfies browser.TabManager.
+// SetTabName satisfies browser.TabManager. It may be called from any
+// goroutine, as vte parsers do: the name reaches the tab on the next
+// tick of the event loop, resolved through the aliases it has by
+// then, so it never reports an error.
 func (a *tabNameAliaser) SetTabName(
 	uri workspaceapi.URI, name string, attr term.Attributes,
 ) error {
-	return a.TabManager.SetTabName(a.resolve(uri), name, attr)
+	a.sched(func() {
+		_ = a.TabManager.SetTabName(a.resolve(uri), name, attr)
+	})
+	return nil
 }
 
 func (a *tabNameAliaser) OnTabExit(uri workspaceapi.URI) bool {
@@ -83,8 +91,6 @@ func (a *tabNameAliaser) OnTabExit(uri workspaceapi.URI) bool {
 // resolve follows alias chains (pty URI -> placeholder URI -> session
 // URI). The iteration bound is cycle insurance.
 func (a *tabNameAliaser) resolve(uri workspaceapi.URI) workspaceapi.URI {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	for range 4 {
 		next, ok := a.alias[uri.String()]
 		if !ok {
@@ -99,27 +105,21 @@ func (a *tabNameAliaser) addAlias(from, to workspaceapi.URI) {
 	if from.String() == to.String() {
 		return
 	}
-	a.mu.Lock()
 	a.alias[from.String()] = to
-	a.mu.Unlock()
 }
 
 func (a *tabNameAliaser) removeAlias(from workspaceapi.URI) {
-	a.mu.Lock()
 	delete(a.alias, from.String())
-	a.mu.Unlock()
 }
 
 // removeAliasesTo drops every alias that resolves directly to target.
 // Called when the placeholder goes away.
 func (a *tabNameAliaser) removeAliasesTo(target workspaceapi.URI) {
-	a.mu.Lock()
 	for from, to := range a.alias {
 		if to.String() == target.String() {
 			delete(a.alias, from)
 		}
 	}
-	a.mu.Unlock()
 }
 
 // asyncVTE is a permanent vtereservoir.VTE wrapper that runs the

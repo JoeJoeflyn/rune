@@ -353,7 +353,7 @@ func (e *ex) init(
 	if tm == nil {
 		tm = e.Browser()
 	}
-	e.tabAliases = newTabNameAliaser(tm)
+	e.tabAliases = newTabNameAliaser(tm, e.sched)
 	e.tm = e.tabAliases
 	e.comp.SubscribeWindow((*windowSubscriber)(e))
 	if initialVTECapacity != 0 {
