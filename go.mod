@@ -256,4 +256,4 @@ replace github.com/tree-sitter/go-tree-sitter => github.com/unstablebuild/go-tre
 
 replace github.com/hajimehoshi/ebiten/v2 => github.com/unstablebuild/ebiten/v2 v2.7.5-ub.32
 
-replace github.com/unstablebuild/rune-go-sdk => github.com/JoeJoeflyn/rune-go-sdk v0.7.1-0.20260926113514-e1294192b995
+replace github.com/unstablebuild/rune-go-sdk => github.com/JoeJoeflyn/rune-go-sdk v0.7.1-0.20261001084018-69094f951aea
