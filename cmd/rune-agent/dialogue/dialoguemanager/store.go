@@ -672,11 +672,11 @@ func (s store) SetTitle(ctx context.Context, id, title string) error {
 				return nil, nil
 			}
 			return []storageapi.Update{
-					{FieldPath: []string{"Title"}, Value: title},
-					{FieldPath: []string{"Version"}, Value: stored.Version + 1},
-				}, []storageapi.Precondition{
-					{FieldPath: []string{"Version"}, Value: stored.Version},
-				}
+				{FieldPath: []string{"Title"}, Value: title},
+				{FieldPath: []string{"Version"}, Value: stored.Version + 1},
+			}, []storageapi.Precondition{
+				{FieldPath: []string{"Version"}, Value: stored.Version},
+			}
 		})
 	if err != nil {
 		return fmt.Errorf("set title: document service update: %w", err)
