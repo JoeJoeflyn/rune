@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ import (
 	"unstable.build/rune/internal/ide"
 	"unstable.build/rune/internal/ide/idepkg"
 	"unstable.build/rune/internal/ide/ideupgrade"
+	"unstable.build/rune/internal/ide/keymeta"
 	"unstable.build/rune/internal/ide/pkgtrust"
 	"unstable.build/rune/internal/term/gui"
 	"unstable.build/rune/internal/term/gui/appmenu"
@@ -70,6 +72,7 @@ type bootstrapHandler struct {
 	mu                *sync.Mutex
 	publishEvent      func(term.Event) bool
 	cellPixelSize     func() (int, int)
+	setAltModifier    func(gui.AltModifier)
 	openBrowser       func(*url.URL) error
 	clip              clipboard.Register
 	installBackupDir  string
@@ -88,10 +91,14 @@ type bootstrapHandler struct {
 	lastResizeW       int
 	lastResizeH       int
 	chosenEditor      string
+	chosenMeta        keymeta.Meta
+	chosenAltModifier gui.AltModifier
 	telemetryEnabled  bool
 	prompter          bootstrapPrompter
-	closingPreIDE     bool
-	recent            *recentWorkspaces
+	// goos overrides runtime.GOOS for the OS-specific prompts; tests set it.
+	goos          string
+	closingPreIDE bool
+	recent        *recentWorkspaces
 	// quickMenu is the configured native quick menu. It is parsed once
 	// per config load because the reserved grid column it implies is
 	// fixed at ide.New time.
@@ -108,6 +115,7 @@ func newBootstrapHandler(
 	mu *sync.Mutex,
 	publishEvent func(term.Event) bool,
 	cellPixelSize func() (int, int),
+	setAltModifier func(gui.AltModifier),
 	openBrowser func(*url.URL) error,
 	clip clipboard.Register,
 	installBackupDir string,
@@ -127,6 +135,7 @@ func newBootstrapHandler(
 		mu:               mu,
 		publishEvent:     publishEvent,
 		cellPixelSize:    cellPixelSize,
+		setAltModifier:   setAltModifier,
 		openBrowser:      openBrowser,
 		clip:             clip,
 		installBackupDir: installBackupDir,
@@ -792,7 +801,7 @@ func (b *bootstrapHandler) recordRecentOpen(command string, args ...string) {
 }
 
 func (b *bootstrapHandler) writePresetConfig() error {
-	body, err := renderPreset(b.chosenEditor, b.telemetryEnabled)
+	body, err := renderPreset(b.chosenEditor, b.chosenMeta, b.telemetryEnabled, b.chosenAltModifier)
 	if err != nil {
 		return fmt.Errorf("render preset: %w", err)
 	}
@@ -891,6 +900,15 @@ var (
 	bootstrapTelemetryKeys = []term.KeyComb{
 		{Ch: 'y'}, {Ch: 'n'},
 	}
+	bootstrapAltModifierKeys = []term.KeyComb{
+		{Ch: 'r'}, {Ch: 'l'}, {Ch: 'n'},
+	}
+)
+
+const (
+	optAltLeft  = " left \u2325 "
+	optAltRight = " right \u2325 "
+	optAltNone  = " neither "
 )
 
 func (b *bootstrapHandler) openBootstrapFlow() {
@@ -957,9 +975,118 @@ func (b *bootstrapHandler) openVimPrompt() {
 		sdkhandler.FuncPromptHandler(
 			guard.onSelect(func(_ int, option string) {
 				b.chosenEditor = optionToChoice(option)
+				b.chosenMeta = keymeta.Super
+				if len(b.metaOptions()) > 1 {
+					b.openMetaPrompt()
+					return
+				}
+				if b.hostOS() == "darwin" {
+					b.openAltModifierPrompt()
+					return
+				}
 				b.openTelemetryPrompt()
 			}),
 			guard.onClose(b.openVimPrompt),
+		),
+	)
+}
+
+// hostOS is the OS the OS-specific prompts are asked for.
+func (b *bootstrapHandler) hostOS() string {
+	if b.goos != "" {
+		return b.goos
+	}
+	return runtime.GOOS
+}
+
+// metaOptions returns the meanings of <meta> the chosen editor is offered
+// on this OS.
+func (b *bootstrapHandler) metaOptions() []keymeta.Meta {
+	mode := b.chosenEditor
+	if mode == editorModeless {
+		mode = editorStandard
+	}
+	return keymeta.Options(b.hostOS(), mode)
+}
+
+// metaOptionLabel is the prompt label of m, such as " ctrl+super ". Its
+// first letter is the option's key.
+func metaOptionLabel(m keymeta.Meta) string {
+	return " " + strings.ToLower(m.Name()) + " "
+}
+
+func (b *bootstrapHandler) openMetaPrompt() {
+	metas := b.metaOptions()
+	labels := make([]string, len(metas))
+	keys := make([]term.KeyComb, len(metas))
+	for i, m := range metas {
+		labels[i] = metaOptionLabel(m)
+		keys[i] = term.KeyComb{Ch: rune(strings.TrimSpace(labels[i])[0])}
+	}
+	msg := "## Choose your `<meta>` key\n\n" +
+		"Rune keeps its own commands, such as windows, tabs, workspaces and " +
+		"pickers, on one `<meta>` layer. Your editor and terminal keep their " +
+		"own keys, and they still get every key first.\n\n"
+	if b.chosenEditor == editorEmacs {
+		msg += "Emacs already uses Alt as its Meta. Many Linux desktops grab " +
+			"Super with the digits, `L` or the arrows, so if yours does, pick " +
+			"**ctrl+super** or **alt+super** to move Rune out of their way.\n\n"
+	} else {
+		msg += "Many Linux desktops grab Super with the digits, `L` or the " +
+			"arrows. If yours does, pick **alt**: Rune then takes the Alt " +
+			"chords your editor leaves free.\n\n"
+	}
+	msg += "You can change this later with `gui.meta_key` in your config.\n\n" +
+		"**Which key should `<meta>` be?**"
+	guard := b.promptGuard()
+	b.prompt(
+		msg,
+		labels,
+		keys,
+		sdkhandler.FuncPromptHandler(
+			guard.onSelect(func(_ int, option string) {
+				for _, m := range metas {
+					if metaOptionLabel(m) == option {
+						b.chosenMeta = m
+					}
+				}
+				b.openTelemetryPrompt()
+			}),
+			guard.onClose(b.openMetaPrompt),
+		),
+	)
+}
+
+func (b *bootstrapHandler) openAltModifierPrompt() {
+	msg := "## Choose your Alt/Option (\u2325) key\n\n" +
+		"Many keyboard layouts type characters such as `|`, `@` or `{` with " +
+		"\u2325 held. Rune can reserve one \u2325 key for typing those " +
+		"characters while the other keeps triggering Alt shortcuts. Pick " +
+		"**neither** to keep both as shortcuts. You can change this any time " +
+		"with `gui.alt_modifier` in your config.\n\n" +
+		"**Which \u2325 key should type layout characters?**"
+	guard := b.promptGuard()
+	b.prompt(
+		msg,
+		[]string{optAltRight, optAltLeft, optAltNone},
+		bootstrapAltModifierKeys,
+		sdkhandler.FuncPromptHandler(
+			guard.onSelect(func(_ int, option string) {
+				switch option {
+				case optAltLeft:
+					b.chosenAltModifier = gui.AltModifierLeft
+				case optAltRight:
+					b.chosenAltModifier = gui.AltModifierRight
+				default:
+					b.chosenAltModifier = gui.AltModifierNone
+				}
+				// The GUI predates this config, so tell it directly.
+				if b.setAltModifier != nil {
+					b.setAltModifier(b.chosenAltModifier)
+				}
+				b.openTelemetryPrompt()
+			}),
+			guard.onClose(b.openAltModifierPrompt),
 		),
 	)
 }

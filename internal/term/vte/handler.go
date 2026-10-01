@@ -172,6 +172,18 @@ func (e *Handler) Component() *Component {
 	return e.comp
 }
 
+// ExitErr returns the error the process exited with. See
+// Component.ExitErr; it is also final by the time Handle reports exit.
+func (e *Handler) ExitErr() error {
+	return e.comp.ExitErr()
+}
+
+// CursorAtScroll returns the cursor's position in the rows Snapshot
+// captures, scrollback included.
+func (e *Handler) CursorAtScroll() term.Coordinates {
+	return e.comp.CursorAtScroll()
+}
+
 // Snapshot returns a durable snapshot of the terminal's rendered
 // buffers. It captures output/history, not the live pty process.
 func (e *Handler) Snapshot() (Snapshot, error) {

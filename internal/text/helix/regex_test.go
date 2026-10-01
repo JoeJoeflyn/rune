@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/unstablebuild/rune-go-sdk/api/textapi"
+	"github.com/unstablebuild/rune-go-sdk/handler/handlertest"
 	"github.com/unstablebuild/rune-go-sdk/term"
 	"unstable.build/rune/internal/cell"
 )
@@ -955,7 +956,7 @@ func TestSearchHighlight(t *testing.T) {
 				tc.setup(hx)
 			}
 			send(t, hx, tc.evs...)
-			attr := impl(hx).less.Scroll().ResultsAttr
+			attr := impl(hx).cursor.SearchAttr()
 			for i := range tc.want {
 				tc.want[i].Attr = attr
 			}
@@ -964,6 +965,393 @@ func TestSearchHighlight(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tc.want, searchLocations(hx))
+		})
+	}
+}
+
+// searchStep is one handlertest frame and where the caret rests after
+// it. The caret sits inside a lit match, where the writer's
+// BackgroundCh covers it, so it is checked on its own.
+type searchStep struct {
+	input  string
+	want   string
+	wantAt term.Coordinates
+}
+
+// TestSearchDraw pins what the search commands put on screen. The
+// search attribute is configured with a background, which the writer
+// renders as ░, so a frame shows every lit match; the default,
+// reverse, would not tell one apart.
+func TestSearchDraw(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		at      term.Coordinates
+		steps   []searchStep
+	}{
+		{
+			name:    "the prompt previews the hit and enter lights every match",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the", want: "a theme                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"search:the▐                     ",
+					wantAt: xy(4, 0)},
+				{input: "<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+			},
+		},
+		{
+			name:    "n and N walk the matches and wrap around",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+				{input: "n", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 1)},
+				{input: "n", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 2)},
+				{input: "n", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(5, 3)},
+				{input: "n", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"         Wrapped around document",
+					wantAt: xy(4, 0)},
+				{input: "N", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"         Wrapped around document",
+					wantAt: xy(5, 3)},
+			},
+		},
+		{
+			name:    "? searches backward from the caret",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "?the<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(5, 3)},
+			},
+		},
+		{
+			name:    "a count repeats n",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<enter>2n", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 2)},
+			},
+		},
+		{
+			name:    "a regex lights every span it matches",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/\\\\d+<enter>", want: "a theme                         \n" +
+					"the x ░░                        \n" +
+					"themes ░                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(7, 1)},
+			},
+		},
+		{
+			name:    "a match across a line ending is lit on both rows",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/e\\\\nt<enter>", want: "a them░                         \n" +
+					"░he x 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(0, 1)},
+			},
+		},
+		{
+			name:    "smart case: only an uppercase pattern tells case apart",
+			content: "The the",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "░░░ ░░░                         \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(6, 0)},
+				{input: "/The<enter>", want: "░░░ the                         \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 0)},
+			},
+		},
+		{
+			name:    "* lights whole words only",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			at:      xy(2, 0),
+			steps: []searchStep{
+				{input: "e*", want: "a ░░░░░                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my ░░░░░                        \n" +
+					"                                \n" +
+					"                                \n" +
+					" register '/' set to '\\btheme\\b'",
+					wantAt: xy(6, 0)},
+				{input: "n", want: "a ░░░░░                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my ░░░░░                        \n" +
+					"                                \n" +
+					"                                \n" +
+					" register '/' set to '\\btheme\\b'",
+					wantAt: xy(7, 3)},
+			},
+		},
+		{
+			name:    "a new search replaces the highlight",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+				{input: "/x<enter>", want: "a theme                         \n" +
+					"the ░ 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 1)},
+			},
+		},
+		{
+			name:    "esc keeps the last highlight and selection",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/x<enter>", want: "a theme                         \n" +
+					"the ░ 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 1)},
+				{input: "/the<esc>", want: "a theme                         \n" +
+					"the ░ 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 1)},
+			},
+		},
+		{
+			name:    "esc before any search lights nothing",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<esc>", want: "▐ theme                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(0, 0)},
+			},
+		},
+		{
+			name:    "an empty prompt runs the last pattern",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/x<enter>gg", want: "▐ theme                         \n" +
+					"the ░ 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(0, 0)},
+				{input: "/<enter>", want: "a theme                         \n" +
+					"the ░ 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 1)},
+			},
+		},
+		{
+			name:    "a pattern without matches lights nothing",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/zzz<enter>", want: "▐ theme                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(0, 0)},
+			},
+		},
+		{
+			name:    "a pattern that does not compile is reported",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/(<enter>", want: "▐ theme                         \n" +
+					"the x 12                        \n" +
+					"themes 3                        \n" +
+					"my theme                        \n" +
+					"                                \n" +
+					"error parsing regexp: missing cl\n" +
+					"osing ): `(?mi)(`               ",
+					wantAt: xy(0, 0)},
+			},
+		},
+		{
+			name:    "typing lights a new match and moves the old ones",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+				{input: "ggiabc<space>the<esc>", want: "abc ░░░▐ ░░░me                  \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(7, 0)},
+			},
+		},
+		{
+			name:    "a deleted match goes dark and undo lights it again",
+			content: "a theme\nthe x 12\nthemes 3\nmy theme",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+				{input: "d", want: "a ▐e                            \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 0)},
+				{input: "u", want: "a ░░░me                         \n" +
+					"░░░ x 12                        \n" +
+					"░░░mes 3                        \n" +
+					"my ░░░me                        \n" +
+					"                                \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(4, 0)},
+			},
+		},
+		{
+			name:    "an off-screen hit is centred",
+			content: "x\nx\nx\nx\nx\nx\nx\nthe\nthe",
+			steps: []searchStep{
+				{input: "/the<enter>", want: "x                               \n" +
+					"x                               \n" +
+					"x                               \n" +
+					"░░░                             \n" +
+					"░░░                             \n" +
+					"                                \n" +
+					"                                ",
+					wantAt: xy(2, 7)},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hx, _, _ := newHelix(t, tc.content, tc.at, WithResAttr(term.Attributes{Bg: term.ColorYellow}))
+			hx.ShowCommandBar(false)
+			w := term.NewStringWriter(32, 7)
+			w.BackgroundCh = '░'
+			for _, step := range tc.steps {
+				handlertest.RunHandlerSequenceWriter(t, w, hx, 32, 7,
+					[]handlertest.SequenceTestCase{{InputSequence: step.input, Expected: step.want}})
+				assert.Equal(t, step.wantAt, hx.CursorAtScroll(), "caret after %s", step.input)
+			}
 		})
 	}
 }
@@ -1298,7 +1686,7 @@ func TestDocCache(t *testing.T) {
 	t.Run("a pattern armed after an edit sees the new text", func(t *testing.T) {
 		hx, _, _ := newHelix(t, "ab x ab", term.Coordinates{})
 		send(t, hx, cat(keys("/"), prompt("ab"), keys("ggd*"))...)
-		attr := impl(hx).less.Scroll().ResultsAttr
+		attr := impl(hx).cursor.SearchAttr()
 		assert.Equal(t, `\bb\b`, registerText(t, hx, '/'))
 		assert.Equal(t, []textapi.Location{{From: xy(0, 0), To: xy(1, 0), Attr: attr}}, searchLocations(hx))
 	})
@@ -1306,7 +1694,7 @@ func TestDocCache(t *testing.T) {
 	t.Run("the highlight of a match ending inside a grapheme covers its cell", func(t *testing.T) {
 		hx, _, _ := newHelix(t, "xe\u0301", term.Coordinates{})
 		send(t, hx, cat(keys("/"), prompt("e"))...)
-		attr := impl(hx).less.Scroll().ResultsAttr
+		attr := impl(hx).cursor.SearchAttr()
 		assert.Equal(t, []textapi.Location{{From: xy(1, 0), To: xy(2, 0), Attr: attr}}, searchLocations(hx))
 	})
 }
