@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -36,6 +37,7 @@ import (
 	"unstable.build/rune/internal/ide"
 	"unstable.build/rune/internal/ide/idetutorial"
 	"unstable.build/rune/internal/ide/idetutorial/starlarktutorial"
+	"unstable.build/rune/internal/ide/keymeta"
 )
 
 var tutorialCallRe = regexp.MustCompile(`(?m)^tutorial\([^\n]*\)$`)
@@ -78,7 +80,7 @@ func TestBasicsTutorialParses(t *testing.T) {
 
 	assert.Equal(t, "basics", tut.ID())
 	assert.Equal(t, "Rune basics", tut.Title())
-	assert.Equal(t, "72", tut.Version())
+	assert.Equal(t, "73", tut.Version())
 }
 
 // TestBasicsTutorialWorkspaceOpenCopyByOS asserts the welcome window's
@@ -228,6 +230,86 @@ tutorial(entry=run)
 					assert.NotContains(t, text, key, "%s step", step)
 				}
 				tut.ObserveEvent("open", "file:///workspace/a.go")
+			}
+		})
+	}
+}
+
+// TestBasicsTutorialConfigSearchByPreset asserts the config step teaches
+// each preset's own in-buffer search keys. Search is not a command, so
+// key_for cannot resolve it and the copy must branch on mode and OS.
+func TestBasicsTutorialConfigSearchByPreset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mode      string
+		os        string
+		expected  []string
+		forbidden []string
+	}{
+		{
+			name:      "vim",
+			mode:      "vim",
+			os:        "linux",
+			expected:  []string{"`/`", "`n`", "theme"},
+			forbidden: []string{"<ctrl-s>", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "helix",
+			mode:      "helix",
+			os:        "linux",
+			expected:  []string{"`/`", "`n`", "theme"},
+			forbidden: []string{"<ctrl-s>", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "emacs",
+			mode:      "emacs",
+			os:        "linux",
+			expected:  []string{"<ctrl-s>", "<enter>"},
+			forbidden: []string{"`/`", "<ctrl-f>", "<meta-f>"},
+		},
+		{
+			name:      "standard/darwin",
+			mode:      "standard",
+			os:        "darwin",
+			expected:  []string{"<meta-f>", "<enter>", "<esc>"},
+			forbidden: []string{"<ctrl-f>", "<ctrl-s>"},
+		},
+		{
+			name:      "standard/linux",
+			mode:      "standard",
+			os:        "linux",
+			expected:  []string{"<ctrl-f>", "<enter>", "<esc>"},
+			forbidden: []string{"<meta-f>", "<ctrl-s>"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			src := withoutTutorialCall(t, basicsTutorial) + `
+def run():
+    wait_event(event = "flush", text = config_edit_md("mullen"))
+tutorial(entry=run)
+`
+			tut, err := starlarktutorial.New(
+				"basics-config-search", src,
+				idetutorial.PromptStyle{}, nil, nil, nil,
+				nil, nil,
+				term.KeyComb{Ch: ':'}, tt.mode, tt.os,
+				nil, nil, nil, nil,
+			)
+			require.NoError(t, err)
+			tut.Resize(80, 24)
+			tut.Reset()
+			require.True(t, tut.WaitActive("wait_event", time.Second))
+
+			text := tut.ActiveText()
+			for _, s := range append([]string{"gui.default_theme", "mullen"}, tt.expected...) {
+				assert.Contains(t, text, s)
+			}
+			for _, s := range tt.forbidden {
+				assert.NotContains(t, text, s)
 			}
 		})
 	}
@@ -589,27 +671,50 @@ func TestBasicsTutorialHasNoHardcodedCommandKeys(t *testing.T) {
 func TestBasicsTutorialHelixKeysMatchPreset(t *testing.T) {
 	t.Parallel()
 
-	layout := map[string]string{
-		`"<meta-h>"`:       `"windowfocus left"`,
-		`"<meta-j>"`:       `"windowfocus down"`,
-		`"<meta-k>"`:       `"windowfocus up"`,
-		`"<meta-l>"`:       `"windowfocus right"`,
-		`"<alt-h>"`:        `"tabprevious"`,
-		`"<alt-l>"`:        `"tabnext"`,
+	focus := map[string]string{
+		`"<meta-h>"`: `"windowfocus left"`,
+		`"<meta-j>"`: `"windowfocus down"`,
+		`"<meta-k>"`: `"windowfocus up"`,
+		`"<meta-l>"`: `"windowfocus right"`,
+	}
+	shiftMove := map[string]string{
 		`"<shift-meta-h>"`: `"windowmove left"`,
 		`"<shift-meta-j>"`: `"windowmove down"`,
 		`"<shift-meta-k>"`: `"windowmove up"`,
 		`"<shift-meta-l>"`: `"windowmove right"`,
-		`"<alt-shift-h>"`:  `"tabmove left"`,
-		`"<alt-shift-l>"`:  `"tabmove right"`,
 	}
-	for preset, body := range map[string]string{
-		"vim": presetModalYAML, "helix": presetHelixYAML,
+	darwinTabs := map[string]string{
+		`"<alt-h>"`:       `"tabprevious"`,
+		`"<alt-l>"`:       `"tabnext"`,
+		`"<alt-shift-h>"`: `"tabmove left"`,
+		`"<alt-shift-l>"`: `"tabmove right"`,
+	}
+	linuxTabs := map[string]string{
+		`"<meta-[>"`:       `"tabprevious"`,
+		`"<meta-]>"`:       `"tabnext"`,
+		`"<shift-meta-[>"`: `"tabmove left"`,
+		`"<shift-meta-]>"`: `"tabmove right"`,
+	}
+	linuxHelixMove := map[string]string{
+		`"<ctrl-meta-h>"`: `"windowmove left"`,
+		`"<ctrl-meta-j>"`: `"windowmove down"`,
+		`"<ctrl-meta-k>"`: `"windowmove up"`,
+		`"<ctrl-meta-l>"`: `"windowmove right"`,
+	}
+	for file, layouts := range map[string][]map[string]string{
+		"preset_modal_darwin.yaml": {focus, shiftMove, darwinTabs},
+		"preset_helix_darwin.yaml": {focus, shiftMove, darwinTabs},
+		"preset_modal_linux.yaml":  {focus, shiftMove, linuxTabs},
+		"preset_helix_linux.yaml":  {focus, linuxHelixMove, linuxTabs},
 	} {
-		for key, command := range layout {
-			assert.Containsf(t, body, key+": "+command,
-				"the %s preset must bind %s to %s as the tutorial teaches",
-				preset, key, command)
+		raw, err := os.ReadFile(file)
+		require.NoError(t, err)
+		for _, layout := range layouts {
+			for key, command := range layout {
+				assert.Containsf(t, string(raw), key+": "+command,
+					"%s must bind %s to %s as the tutorial teaches",
+					file, key, command)
+			}
 		}
 	}
 	assert.Contains(t, presetHelixYAML, `"<space>e": fexplorer`)
@@ -624,34 +729,36 @@ func TestBasicsTutorialHelixKeysMatchPreset(t *testing.T) {
 		{mode: "emacs", want: false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.mode, func(t *testing.T) {
-			t.Parallel()
-			src := withoutTutorialCall(t, basicsTutorial) + `
+		for _, goos := range []string{"darwin", "linux"} {
+			t.Run(goos+"/"+tt.mode, func(t *testing.T) {
+				t.Parallel()
+				src := withoutTutorialCall(t, basicsTutorial) + `
 def run():
     wait_event(event = "open", text = layout_pattern_md + tabs_intro_md)
 tutorial(entry=run)
 `
-			tut, err := starlarktutorial.New(
-				"basics-helix-keys", src,
-				idetutorial.PromptStyle{}, nil, nil, nil,
-				nil, nil,
-				term.KeyComb{Ch: ':'}, tt.mode, "",
-				nil, nil, nil, nil,
-			)
-			require.NoError(t, err)
-			tut.Resize(80, 24)
-			tut.Reset()
-			t.Cleanup(tut.Stop)
-			require.True(t, tut.WaitActive("wait_event", time.Second))
+				tut, err := starlarktutorial.New(
+					"basics-helix-keys", src,
+					idetutorial.PromptStyle{}, nil, nil, nil,
+					nil, nil,
+					term.KeyComb{Ch: ':'}, tt.mode, goos,
+					nil, nil, nil, nil,
+				)
+				require.NoError(t, err)
+				tut.Resize(80, 24)
+				tut.Reset()
+				t.Cleanup(tut.Stop)
+				require.True(t, tut.WaitActive("wait_event", time.Second))
 
-			text := tut.ActiveText()
-			if tt.want {
-				assert.Contains(t, text, "<space>e")
-				return
-			}
-			assert.NotContains(t, text, "<space>e",
-				"only the helix preset binds Helix's leader menu")
-		})
+				text := tut.ActiveText()
+				if tt.want {
+					assert.Contains(t, text, "<space>e")
+					return
+				}
+				assert.NotContains(t, text, "<space>e",
+					"only the helix preset binds Helix's leader menu")
+			})
+		}
 	}
 }
 
@@ -1438,42 +1545,78 @@ func TestNavigationTutorialPrefillKeysMatchPresets(t *testing.T) {
 		defPrefill = `": "echo {prompt}lsp<space>definition<space>"`
 	)
 	tests := []struct {
+		os      string
 		mode    string
 		jumpKey string
 		defKey  string
 		preset  string
 	}{
 		{
+			os:      "darwin",
 			mode:    "emacs",
 			jumpKey: "<meta-j>",
 			defKey:  "<ctrl-alt-.>",
-			preset:  presetEmacsYAML,
+			preset:  "preset_emacs_darwin.yaml",
 		},
 		{
+			os:      "darwin",
 			mode:    "vim",
 			jumpKey: "<alt-f>",
 			defKey:  "<alt-shift-d>",
-			preset:  presetModalYAML,
+			preset:  "preset_modal_darwin.yaml",
 		},
 		{
+			os:      "darwin",
 			mode:    "standard",
 			jumpKey: "<alt-f>",
 			defKey:  "<alt-shift-d>",
-			preset:  presetStandardYAML,
+			preset:  "preset_standard_darwin.yaml",
 		},
 		{
+			os:      "darwin",
 			mode:    "helix",
 			jumpKey: "<space>s",
 			defKey:  "<shift-meta-d>",
-			preset:  presetHelixYAML,
+			preset:  "preset_helix_darwin.yaml",
+		},
+		{
+			os:      "linux",
+			mode:    "emacs",
+			jumpKey: "<meta-j>",
+			defKey:  "<ctrl-alt-.>",
+			preset:  "preset_emacs_linux.yaml",
+		},
+		{
+			os:      "linux",
+			mode:    "vim",
+			jumpKey: "<meta-f>",
+			defKey:  "<shift-meta-d>",
+			preset:  "preset_modal_linux.yaml",
+		},
+		{
+			os:      "linux",
+			mode:    "standard",
+			jumpKey: "<ctrl-meta-f>",
+			defKey:  "<shift-meta-d>",
+			preset:  "preset_standard_linux.yaml",
+		},
+		{
+			os:      "linux",
+			mode:    "helix",
+			jumpKey: "<space>s",
+			defKey:  "<ctrl-shift-meta-d>",
+			preset:  "preset_helix_linux.yaml",
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.mode, func(t *testing.T) {
+		t.Run(tt.os+"/"+tt.mode, func(t *testing.T) {
 			t.Parallel()
-			assert.Contains(t, tt.preset, `"`+tt.jumpKey+jumpPrefill,
+			raw, err := os.ReadFile(tt.preset)
+			require.NoError(t, err)
+			preset := string(raw)
+			assert.Contains(t, preset, `"`+tt.jumpKey+jumpPrefill,
 				"the preset must bind the chord the tutorial teaches")
-			assert.Contains(t, tt.preset, `"`+tt.defKey+defPrefill,
+			assert.Contains(t, preset, `"`+tt.defKey+defPrefill,
 				"the preset must bind the chord the tutorial teaches")
 
 			src := `
@@ -1486,7 +1629,7 @@ tutorial(entry=run)
 				"navigation-prefill-keys", modeSrc,
 				idetutorial.PromptStyle{}, nil, nil, nil,
 				nil, nil,
-				term.KeyComb{Ch: ':'}, tt.mode, "",
+				term.KeyComb{Ch: ':'}, tt.mode, tt.os,
 				nil, nil, nil, nil,
 			)
 			require.NoError(t, err)
@@ -1495,6 +1638,100 @@ tutorial(entry=run)
 			require.True(t, tut.WaitActive("wait_command", time.Second))
 			assert.Contains(t, tut.ActiveText(), tt.jumpKey)
 			assert.Contains(t, tut.ActiveText(), tt.defKey)
+		})
+	}
+}
+
+// TestTutorialsSpellMetaKey pins that the tutorials spell Rune's <meta>
+// chords on the keys gui.meta_key puts <meta> on.
+func TestTutorialsSpellMetaKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		os, mode string
+		meta     keymeta.Meta
+		// want holds copy each tutorial must contain.
+		navigation, basics []string
+		agent              string
+	}{
+		{
+			os: "darwin", mode: "vim", meta: keymeta.Super,
+			navigation: []string{"`<alt-f>`", "`<alt-shift-d>`"},
+			basics:     []string{"Hold `<meta>` with `h`", "`<shift-meta>` + `h`"},
+			agent:      "`<meta-r>`",
+		},
+		{
+			os: "linux", mode: "vim", meta: keymeta.Super,
+			navigation: []string{"`<meta-f>`", "`<shift-meta-d>`"},
+			basics:     []string{"Hold `<meta>` with `h`", "`<shift-meta>` + `[`"},
+			agent:      "`<meta-r>`",
+		},
+		{
+			os: "linux", mode: "vim", meta: keymeta.Alt,
+			navigation: []string{"`<alt-f>`", "`<alt-shift-d>`"},
+			basics:     []string{"Hold `<alt>` with `h`", "`<alt-shift>` + `[`"},
+			agent:      "`<alt-r>`",
+		},
+		{
+			os: "linux", mode: "helix", meta: keymeta.Alt,
+			navigation: []string{"`<space>s`", "`<ctrl-shift-alt-d>`"},
+			basics:     []string{"Hold `<alt>` with `h`", "`<ctrl-alt>` + `h`"},
+			agent:      "`<alt-r>`",
+		},
+		{
+			os: "linux", mode: "standard", meta: keymeta.Alt,
+			navigation: []string{"`<ctrl-alt-f>`", "`<alt-shift-d>`"},
+			basics:     []string{"hold `<alt>` and press IJKL"},
+			agent:      "`<alt-r>`",
+		},
+		{
+			os: "linux", mode: "emacs", meta: keymeta.CtrlSuper,
+			navigation: []string{"`<ctrl-meta-j>`", "`<ctrl-alt-.>`"},
+			basics: []string{"Hold `<ctrl-meta>` and press P/N/B/F",
+				"`<ctrl-shift-meta>` + P/N/B/F"},
+			agent: "`<ctrl-meta-r>`",
+		},
+		{
+			os: "linux", mode: "emacs", meta: keymeta.AltSuper,
+			navigation: []string{"`<alt-meta-j>`", "`<ctrl-alt-.>`"},
+			basics:     []string{"Hold `<alt-meta>` and press P/N/B/F"},
+			agent:      "`<alt-meta-r>`",
+		},
+	}
+	render := func(t *testing.T, src, show, os, mode string, meta keymeta.Meta) string {
+		t.Helper()
+		tut, err := starlarktutorial.New(
+			"meta-key", withoutTutorialCall(t, src)+`
+def run():
+    wait_command(command = "nonesuch", text = `+show+`)
+tutorial(entry=run)
+`,
+			idetutorial.PromptStyle{}, nil, nil, nil,
+			nil, nil,
+			term.KeyComb{Ch: ':'}, mode, os,
+			nil, nil, nil, nil,
+			starlarktutorial.WithMetaKey(meta),
+		)
+		require.NoError(t, err)
+		tut.Resize(120, 60)
+		tut.Reset()
+		require.True(t, tut.WaitActive("wait_command", time.Second))
+		return tut.ActiveText()
+	}
+	for _, tt := range tests {
+		t.Run(tt.os+"/"+tt.mode+"/"+tt.meta.String(), func(t *testing.T) {
+			t.Parallel()
+			nav := render(t, navigationTutorial,
+				"jump_symbol_md + lsp_definition_name_md", tt.os, tt.mode, tt.meta)
+			for _, want := range tt.navigation {
+				assert.Contains(t, nav, want)
+			}
+			basics := render(t, basicsTutorial, "layout_pattern_md", tt.os, tt.mode, tt.meta)
+			for _, want := range tt.basics {
+				assert.Contains(t, basics, want)
+			}
+			agent := render(t, agentTutorial, "help_md", tt.os, tt.mode, tt.meta)
+			assert.Contains(t, agent, tt.agent+" to open the command prompt in history mode")
 		})
 	}
 }
@@ -1834,7 +2071,7 @@ func TestShippedTutorialsParseInEveryMode(t *testing.T) {
 	t.Parallel()
 
 	versions := map[string]string{
-		"basics":     "72",
+		"basics":     "73",
 		"navigation": "27",
 		"agent":      "13",
 	}

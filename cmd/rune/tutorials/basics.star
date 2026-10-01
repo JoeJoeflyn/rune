@@ -52,6 +52,34 @@ else:
     completer_move_phrase = ("press `<down>` to move down the list and " +
                              "`<up>` to move up")
 
+# In-buffer search is an editor key, not a command, so key_for cannot
+# resolve it. Standard's find key is <meta-f>, with <ctrl-f> as a
+# permanent alias that Linux users expect. `theme` first matches the
+# config header comments, so every variant has to say to keep jumping.
+if modal_mode:
+    config_search_steps = """\
+   - Press `/`, type `theme`, and press `<enter>`.
+
+   - Press `n` to jump to the next match until the cursor reaches
+     `gui.default_theme`."""
+elif mode == "emacs":
+    config_search_steps = """\
+   - Press `<ctrl-s>` and type `theme`.
+
+   - Press `<ctrl-s>` again to jump to the next match until the cursor
+     reaches `gui.default_theme`.
+
+   - Press `<enter>` to leave the search with the cursor there."""
+else:
+    find_key = "<meta-f>" if os() == "darwin" else "<ctrl-f>"
+    config_search_steps = """\
+   - Press `""" + find_key + """` and type `theme`.
+
+   - Press `<enter>` to jump to the next match until the cursor reaches
+     `gui.default_theme`.
+
+   - Press `<esc>` to close the search with the cursor there."""
+
 def completer_steps(what):
     # Sub-steps of an auto-completer step: typing and moving the
     # selection are alternatives, not an order to follow.
@@ -148,6 +176,32 @@ resize_key_row = " | ".join([
 # Use the rightward one so every mode ends up with the same layout.
 split_window_args = ["right"] if mode == "emacs" else []
 
+# key() spells these modifiers on the keys gui.meta_key puts `<meta>` on.
+meta_md = "`" + key("<meta>") + "`"
+shift_meta_md = "`" + key("<shift-meta>") + "`"
+ctrl_meta_md = "`" + key("<ctrl-meta>") + "`"
+
+# The Linux presets keep Rune's layer on `<meta>` so users can pick which
+# physical key acts as it; macOS puts tabs on `<alt>` beside the `<meta>`
+# window keys. Helix moves windows with `<ctrl-meta>` on Linux because
+# `<shift-meta>` + HJKL would collide with Helix's own `<alt>` chords when
+# `<meta>` is Alt.
+if os() == "linux":
+    tab_focus_md = "- Hold " + meta_md + " with `[` or `]` to focus the previous or next tab.\n"
+    tab_move_md = "  - " + shift_meta_md + " + `[` or `]` moves the current tab left or right in the tab list.\n"
+    helix_move_md = """\
+- Add `<ctrl>` to move the content instead of focus it:
+  - """ + ctrl_meta_md + """ + `h` `j` `k` `l` moves the focused window's content.
+- Add `<shift>` to move a tab instead of focus it:
+"""
+else:
+    tab_focus_md = "- Hold `<alt>` with `h` or `l` to focus the previous or next tab.\n"
+    tab_move_md = "  - `<shift-alt>` + `h` or `l` moves the current tab left or right in the tab list.\n"
+    helix_move_md = """\
+- Add `<shift>` to move the content instead of focus it:
+  - `<shift-meta>` + `h` `j` `k` `l` moves the focused window's content.
+"""
+
 if mode == "vim":
     layout_pattern_md = """\
 ## HJKL controls the layout
@@ -159,12 +213,11 @@ controls and can keep your attention on the work.
 Rune carries that same HJKL language into layout management: `H` points left,
 `J` down, `K` up, and `L` right.
 
-- Hold `<meta>` with `h` `j` `k` `l` to focus a window in that direction.
-- Hold `<alt>` with `h` or `l` to focus the previous or next tab.
+- Hold """ + meta_md + """ with `h` `j` `k` `l` to focus a window in that direction.
+""" + tab_focus_md + """\
 - Add `<shift>` to move the content instead of focus it:
-  - `<shift-meta>` + `h` `j` `k` `l` moves the focused window's content.
-  - `<shift-alt>` + `h` or `l` moves the current tab left or right in the tab list.
-"""
+  - """ + shift_meta_md + """ + `h` `j` `k` `l` moves the focused window's content.
+""" + tab_move_md
 elif mode == "helix":
     layout_pattern_md = """\
 ## HJKL controls the layout
@@ -176,31 +229,51 @@ controls and can keep your attention on the work.
 Rune carries that same HJKL language into layout management: `H` points left,
 `J` down, `K` up, and `L` right.
 
-- Hold `<meta>` with `h` `j` `k` `l` to focus a window in that direction.
-- Hold `<alt>` with `h` or `l` to focus the previous or next tab.
-- Add `<shift>` to move the content instead of focus it:
-  - `<shift-meta>` + `h` `j` `k` `l` moves the focused window's content.
-  - `<shift-alt>` + `h` or `l` moves the current tab left or right in the tab list.
-"""
+- Hold """ + meta_md + """ with `h` `j` `k` `l` to focus a window in that direction.
+""" + tab_focus_md + helix_move_md + tab_move_md
 elif mode == "emacs":
     layout_pattern_md = """\
 ## Emacs directions control the layout
 
 Rune keeps `<ctrl-p>` / `<ctrl-n>` and `<ctrl-b>` / `<ctrl-f>` available for
 editing. Rather than teach a second direction map, Rune changes the target:
-hold `<meta>` with the same PNBF directions to focus windows, then add `<shift>`
+hold """ + meta_md + """ with the same PNBF directions to focus windows, then add `<shift>`
 to move window content instead. Reusing that muscle memory keeps repeated
 layout actions fast, and the host Meta layer stays reachable from terminals.
 
-- Hold `<meta>` and press P/N/B/F to focus a window in that direction.
+- Hold """ + meta_md + """ and press P/N/B/F to focus a window in that direction.
 - Press """ + keylabel("tabprevious") + """ / """ + keylabel("tabnext") + """ to focus the previous or next tab.
 - Add `<shift>` to move the content instead of focus it:
-  - `<shift-meta>` + P/N/B/F moves the focused window's content.
+  - """ + shift_meta_md + """ + P/N/B/F moves the focused window's content.
   - """ + keylabel("tabmove", "left") + """ / """ + keylabel("tabmove", "right") + """ moves the current tab left or right in the tab list.
 - Manage windows:
   - """ + keylabel("windownew", "down") + """ / """ + keylabel("windownew", "right") + """ splits below or right.
   - """ + keylabel("windowclose") + """ closes a window, and """ + keylabel("windowcloseall") + """ closes the others.
   - """ + keylabel("windowtogglemaximize") + """ toggles maximization.
+"""
+elif os() == "linux":
+    layout_pattern_md = """\
+## Meta drives the layout
+
+Vim made generations of programmers extraordinarily productive by keeping
+navigation under their fingers. Repeated actions become muscle memory,
+reducing menu hunting and the mental fatigue of switching attention between
+code and interface controls.
+
+Keyboard-driven does not have to mean learning an entirely new way to edit.
+Rune brings that advantage to a familiar, non-modal editor by treating IJKL
+as a second set of arrow keys:
+
+```text
+    I
+  J K L
+```
+
+`I` points up, `J` left, `K` down, and `L` right. So hold """ + meta_md + """ and press IJKL to focus
+a window. Add `<shift>` to move its content.
+
+The pattern is Meta plus the target: IJKL affects windows, brackets affect tabs,
+and adding `<shift>` moves content instead of focus.
 """
 else:
     layout_pattern_md = """\
@@ -576,9 +649,13 @@ def config_edit_md(theme):
 lives there. Everything else is commented out at Rune's own defaults,
 so reading the file is how you find what is tunable.
 
-1. Scroll to `gui.default_theme` and set it to `""" + theme + """`.
+1. Find the theme setting:
 
-2. Save the file: """ + keypress("write") + """.
+""" + config_search_steps + """
+
+2. Set `gui.default_theme` to `""" + theme + """`.
+
+3. Save the file: """ + keypress("write") + """.
 """
 
 config_done_md = """\
@@ -838,4 +915,4 @@ def run():
     teach_cheatsheet()
 
 
-tutorial(id = "basics", title = "Rune basics", version = "72", entry = run)
+tutorial(id = "basics", title = "Rune basics", version = "73", entry = run)

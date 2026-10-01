@@ -10,6 +10,9 @@
 # ---------------------------------------------------------------------------
 gui:
   default_theme: romero
+  # The physical key <meta> means in Rune's key bindings. Editors still
+  # receive the key itself. Linux: <super> or <alt>.
+  meta_key: "[[.Meta]]"
 #   font_size: 13
 #   window_opacity: {fg: 1, bg: 1}
 #   window_blur_radius: 100
@@ -22,8 +25,8 @@ gui:
 # ---------------------------------------------------------------------------
 # Editor
 #
-# `aux_bar` is the strip left of each editor pane, `status_bar` the bar at the
-# bottom of each pane, and `modal.message_bar` the line showing search prompts
+# `aux_bar` is the strip left of each buffer, `status_bar` the bar at the
+# bottom of each buffer, and `vim.message_bar` the line showing search prompts
 # and echoed messages.
 # ---------------------------------------------------------------------------
 # editor:
@@ -49,8 +52,10 @@ gui:
 #     background_attr:       {bg: gray}
 #     foreground_error_attr: {fg: yellow}
 #   vim:
+#     attr:        {fg: default, bg: default}   # buffer text
+#     search_attr: {fg: grey, bg: yellow}       # search matches
 #     message_bar:
-#       attr: {fg: default, bg: gray}
+#       attr:   {fg: default, bg: gray}
 #       layout: '░▒▓█ {{ .Message | fg "white" }} '
 
 # ---------------------------------------------------------------------------
@@ -96,92 +101,53 @@ command:
 #     gitcheckout:
 #       command:   "!! git -C $WORKSPACE_PATH checkout $1"
 #       completer: '! git -C $WORKSPACE_PATH branch --format="%(refname:short)"'
-#     # Open this configuration file (already bound to <meta-,>).
+#     # Open this configuration file.
 #     conf: config
   key_bindings:
+    # Rune's own commands live on one <meta> layer (Super on Linux), clear of
+    # the editor and the terminal. <ctrl-meta> holds the rare variants.
     "<shift-tab>": "fexplorer"
-    "<meta-r>": "history"
-    "<meta-,>": "config"
+    "<shift-meta-;>": "history"
     "<meta-/>": "cheatsheet"
     "<meta-q>": "quit"
     "<meta-=>": "guifontsize increase"
     "<meta-->": "guifontsize decrease"
-    "<meta-t>": "tabnew"
-    "<alt-enter>": "echo {prompt}windowconverttab<space>"
-    "<alt-w>": "tabclose"
-    "<alt-l>": "tabnext"
-    "<alt-h>": "tabprevious"
-    "<meta-n>": "windownew"
     "<meta-c>": "clipboardcopy"
     "<meta-v>": "clipboardpaste"
-    "<alt-`>": "tabsearch"
-    "<alt-shift-l>": "tabmove right"
-    "<alt-shift-h>": "tabmove left"
+    # Windows: hjkl focuses, <shift> moves, <ctrl-shift> resizes. Resize
+    # stays off <alt-meta>, which folds onto <meta> when <meta> is Alt.
+    "<meta-n>": "windownew"
     "<meta-h>": "windowfocus left"
-    "<meta-l>": "windowfocus right"
     "<meta-j>": "windowfocus down"
     "<meta-k>": "windowfocus up"
+    "<meta-l>": "windowfocus right"
     "<shift-meta-h>": "windowmove left"
-    "<shift-meta-l>": "windowmove right"
     "<shift-meta-j>": "windowmove down"
     "<shift-meta-k>": "windowmove up"
+    "<shift-meta-l>": "windowmove right"
+    "<ctrl-shift-meta-h>": "windowresize decrease width"
+    "<ctrl-shift-meta-j>": "windowresize decrease height"
+    "<ctrl-shift-meta-k>": "windowresize increase height"
+    "<ctrl-shift-meta-l>": "windowresize increase width"
+    "<meta-w>": "windowclose"
+    "<shift-meta-f>": "windowtogglemaximize"
+    "<ctrl-meta-h>": "windowdefaultsplit h"
+    "<ctrl-meta-v>": "windowdefaultsplit v"
     "<shift-meta-backspace>": "windowresize reset"
     "<shift-meta-+>": ["windowresize max width", "windowresize max height"]
     "<shift-meta-->": ["windowresize min width", "windowresize min height"]
-    "<alt-meta-h>": "windowresize decrease width"
-    "<alt-meta-j>": "windowresize decrease height"
-    "<alt-meta-k>": "windowresize increase height"
-    "<alt-meta-l>": "windowresize increase width"
-    "<meta-w>": "windowclose"
-    "<shift-meta-w>": "windowcloseall"
-    "<ctrl-meta-h>": "windowdefaultsplit h"
-    "<ctrl-meta-v>": "windowdefaultsplit v"
-    "<shift-meta-f>": "windowtogglemaximize"
-    "<alt-f>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.method|local.definition.function<space>"
-    "<alt-v>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.var<space>"
-    "<alt-s>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.type<space>"
-    "<alt-j>": "lspnextdiagnostic"
-    "<alt-k>": "lspprevdiagnostic"
-    "<alt-t>": "lsp hover"
-    "<alt-shift-t>": "echo {prompt}lsp<space>hover<space>"
-    "<alt-shift-e>": "lsp diagnostics"
-    "<meta-f>": "lsp rename"
-    "<alt-r>": "lsp references"
-    "<alt-shift-r>": "echo {prompt}lsp<space>references<space>"
-    "<alt-d>": "lsp definition"
-    "<alt-shift-d>": "echo {prompt}lsp<space>definition<space>"
-    "<alt-i>": "lsp implementation"
-    "<alt-shift-i>": "echo {prompt}lsp<space>implementation<space>"
-    "<ctrl-o>": "cursorhistory prev"
-    "<ctrl-i>": "cursorhistory next"
-    "<alt-b>": "lsp format"
-    # on MacOS <ctrl-space> is a shortcut. To disable it and enable this
-    # key binding, go to System Settings → Keyboard → Keyboard Shortcuts
-    # → Input Sources → uncheck both entries.
-    "<ctrl-space>": "lsp complete"
-    "<alt-shift-j>": "gitnextchange"
-    "<alt-shift-k>": "gitprevchange"
     "<meta-enter>": "terminalneworsplit"
     "<shift-meta-enter>": "!"
+    # Tabs: brackets step through them, <shift> reorders.
+    "<meta-[>": "tabprevious"
+    "<meta-]>": "tabnext"
+    "<shift-meta-[>": "tabmove left"
+    "<shift-meta-]>": "tabmove right"
+    "<shift-meta-w>": "tabclose"
+    "<ctrl-meta-enter>": "echo {prompt}windowconverttab<space>"
+    "<shift-meta-`>": "tabsearch"
+    # Workspaces: digits focus, <shift> moves.
     "<meta-`>": "workspacesearch"
-    "<alt-1>": "tabfocus 1"
-    "<alt-2>": "tabfocus 2"
-    "<alt-3>": "tabfocus 3"
-    "<alt-4>": "tabfocus 4"
-    "<alt-5>": "tabfocus 5"
-    "<alt-6>": "tabfocus 6"
-    "<alt-7>": "tabfocus 7"
-    "<alt-8>": "tabfocus 8"
-    "<alt-9>": "tabfocus 9"
-    "<alt-shift-1>": "tabmove 1"
-    "<alt-shift-2>": "tabmove 2"
-    "<alt-shift-3>": "tabmove 3"
-    "<alt-shift-4>": "tabmove 4"
-    "<alt-shift-5>": "tabmove 5"
-    "<alt-shift-6>": "tabmove 6"
-    "<alt-shift-7>": "tabmove 7"
-    "<alt-shift-8>": "tabmove 8"
-    "<alt-shift-9>": "tabmove 9"
     "<meta-1>": "workspacefocus 1"
     "<meta-2>": "workspacefocus 2"
     "<meta-3>": "workspacefocus 3"
@@ -200,9 +166,43 @@ command:
     "<shift-meta-7>": "workspacemove 7"
     "<shift-meta-8>": "workspacemove 8"
     "<shift-meta-9>": "workspacemove 9"
+    # Code: <meta> asks about the caret, <shift> prompts for a name. Period
+    # and comma step forward and back through diagnostics, and with <shift>
+    # through Git changes.
+    "<meta-t>": "lsp hover"
+    "<shift-meta-t>": "echo {prompt}lsp<space>hover<space>"
+    "<meta-r>": "lsp references"
+    "<shift-meta-r>": "echo {prompt}lsp<space>references<space>"
+    "<meta-d>": "lsp definition"
+    "<shift-meta-d>": "echo {prompt}lsp<space>definition<space>"
+    "<meta-i>": "lsp implementation"
+    "<shift-meta-i>": "echo {prompt}lsp<space>implementation<space>"
+    "<shift-meta-e>": "lsp diagnostics"
+    "<meta-b>": "lsp format"
+    "<meta-.>": "lspnextdiagnostic"
+    "<meta-,>": "lspprevdiagnostic"
+    "<shift-meta-.>": "gitnextchange"
+    "<shift-meta-,>": "gitprevchange"
+    "<meta-f>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.method|local.definition.function<space>"
+    "<meta-s>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.type<space>"
+    "<shift-meta-v>": "echo {prompt}jumptoast<space>locals.scm<space>local.definition.var<space>"
+    "<ctrl-o>": "cursorhistory prev"
+    "<ctrl-i>": "cursorhistory next"
+    "<ctrl-space>": "lsp complete"
+    # The fuzzy_search package binds its symbol pickers on <alt-shift>;
+    # free that layer for the editor and the terminal. Package installs
+    # match keys by spelling, so these repeat the package's own spelling.
+    "<a-s-f>": ""
+    "<a-s-v>": ""
+    "<a-s-s>": ""
+
 
 # ---------------------------------------------------------------------------
-# Animations between workspaces
+# Animations
+#
+# `active_content_tab` plays over tabs with work in progress, such as an agent
+# turn, and `active_workspace_tab` over the workspace tabs that own them. Their
+# shaders: blaze, burn, inferno, noise, pulse, shine, trippy.
 # ---------------------------------------------------------------------------
 # animations:
 #   loading_workspace: true
@@ -210,13 +210,16 @@ command:
 #     enabled:  true
 #     # shader:   burn
 #     # duration: 1s
-
-# ---------------------------------------------------------------------------
-# Self-upgrade
-# ---------------------------------------------------------------------------
-# upgrade:
-#   auto_check_enabled: true
-#   check_period:       24h
+#   active_content_tab:
+#     enabled: true
+#     shader:  inferno
+#     fps:     10
+#     loop:    1400ms
+#   active_workspace_tab:
+#     enabled: true
+#     shader:  inferno
+#     fps:     10
+#     loop:    1400ms
 
 # ---------------------------------------------------------------------------
 # Notifications

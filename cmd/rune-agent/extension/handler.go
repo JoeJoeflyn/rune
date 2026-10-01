@@ -1313,8 +1313,13 @@ func (h *aiEditorHandler) newChat(
 	// the base tools for display (e.g. /tools); it carries no mutable state.
 	baseTools := h.tools()
 	cmdRegistry := agent.NewRegistry(baseTools...)
+	// The chat's /compact runs through cmdShell, so its summary budget must
+	// follow the chat's /max_tokens override. chatAgent is assigned below,
+	// before the chat can run any command.
+	var chatAgent *agent.Agent
 	cmdShellOpts := []agentshell.Option{
 		agentshell.WithMCPInfo(h.mcpManager),
+		agentshell.WithMaxTokens(func() int { return chatAgent.MaxOutputTokens() }, nil),
 	}
 	if h.auditStore != nil {
 		cmdShellOpts = append(cmdShellOpts, agentshell.WithAuditStore(h.auditStore))
@@ -1435,7 +1440,7 @@ func (h *aiEditorHandler) newChat(
 
 	h.openChats.Store(d.ID, syncComp)
 
-	chatAgent := agent.NewAgent(
+	chatAgent = agent.NewAgent(
 		backendService, chatRegistry, h.skillRegistry,
 		h.dialogueStore, memRecaller, agent.Config{
 			MaxToolOutputBytes:  h.maxToolOutputBytes,
