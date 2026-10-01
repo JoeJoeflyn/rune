@@ -134,15 +134,22 @@ func TestRenderPreset(t *testing.T) {
 		"emacs must use the PNBF direction layer for window focus")
 	require.Equal(t, "undo prefix", emaKeys["<ctrl-x>u"],
 		"emacs must expose GNU's C-x u undo alias")
-	for key, cmd := range map[string]string{
+	emaLayout := map[string]string{
 		"<meta-d>":       "windownew down",
 		"<meta-r>":       "windownew right",
 		"<meta-k>":       "windowclose",
 		"<shift-meta-k>": "windowcloseall",
 		"<meta-m>":       "windowtogglemaximize",
 		"<meta-o>":       "fexplorer",
-		"<meta-left>":    "windowresize decrease width",
-	} {
+	}
+	// Linux keeps resize off <meta> arrows, which GNOME and KDE take for
+	// window snapping.
+	if runtime.GOOS == "darwin" {
+		emaLayout["<meta-left>"] = "windowresize decrease width"
+	} else {
+		emaLayout["<ctrl-alt-meta-b>"] = "windowresize decrease width"
+	}
+	for key, cmd := range emaLayout {
 		require.Equalf(t, cmd, emaKeys[key],
 			"emacs layout bindings must remain reachable from terminals: %s", key)
 	}
