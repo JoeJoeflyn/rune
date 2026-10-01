@@ -647,7 +647,7 @@ func TestReadFile_imagePathWithSpaces(t *testing.T) {
 	result := tool.Execute(context.Background(), `{"path": "`+imgPath+`"}`)
 
 	assert.False(t, result.IsError)
-	assert.Equal(t, "Read image file: Screenshot 2026-03-25 at 6.55.08 AM.png (73 bytes, image/png)", result.Content)
+	assert.Equal(t, fmt.Sprintf("Read image file: Screenshot 2026-03-25 at 6.55.08 AM.png (%d bytes, image/png)", buf.Len()), result.Content)
 	require.Len(t, result.MultiContent, 2)
 	assert.Equal(t, llmapi.ContentPartTypeText, result.MultiContent[0].Type)
 	assert.Equal(t, llmapi.ContentPartTypeImageURL, result.MultiContent[1].Type)

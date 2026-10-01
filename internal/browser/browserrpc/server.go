@@ -602,7 +602,7 @@ func (s *Server) setBrowserMessage(
 func (s *Server) notify(
 	ctx context.Context, req *browserrpc.NotifyRequest, once bool,
 ) (*browserrpc.NotifyResponse, error) {
-	msg := sanitizeLine(req.GetMsg())
+	msg := sanitizeMessage(req.GetMsg())
 	level := browserapi.NotificationLevel(req.GetLevel())
 	switch level {
 	case browserapi.LevelInfo,
@@ -649,12 +649,13 @@ func protoToModelBarFrame(p browserrpc.BarRequest_Frame) (o browserapi.BarFrame)
 	return
 }
 
-func sanitizeLine(in string) string {
+// sanitizeMessage keeps line breaks, which notifications render as
+// separate lines, normalizing CRLF to LF.
+func sanitizeMessage(in string) string {
 	var b strings.Builder
 	for _, r := range in {
 		switch r {
-		case '\x00':
-		case '\n':
+		case '\x00', '\r':
 		default:
 			b.WriteRune(r)
 		}

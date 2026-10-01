@@ -168,6 +168,10 @@ type helixHandlerImpl struct {
 	// whole document for every keystroke.
 	docs docCache
 
+	// lit is the document state the search highlight was computed
+	// against, so Draw can bring it back in line after an edit.
+	lit litSearch
+
 	matchPending   bool
 	matchAround    bool
 	surroundMode   surroundOp
@@ -300,6 +304,7 @@ func (h *helixHandlerImpl) drawLocationMessage() {
 
 // Draw satisfies tui.Component.
 func (h *helixHandlerImpl) Draw(w term.Writer) {
+	h.refreshHighlight()
 	h.drawLocationMessage()
 	h.less.Draw(w)
 	text.DrawLocations(h.cursor.SortedLocations(), h.less.Scroll(), w)

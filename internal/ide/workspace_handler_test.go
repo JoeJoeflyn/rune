@@ -8166,8 +8166,9 @@ func TestRestoreExtensionTabs(t *testing.T) {
 		m.mu.Unlock()
 		assert.Equal(t, 'x', icon, "the placeholder must keep the tab's icon")
 		assert.Equal(t, "chat", name, "the placeholder must keep the tab's name")
-		assert.Contains(t, placeholderText(t, m),
-			"Waiting for an extension to open "+tabURI)
+		text := placeholderText(t, m)
+		assert.Contains(t, text, "Waiting for the owning extension to open")
+		assert.Contains(t, text, tabURI)
 	})
 
 	t.Run("the opened content takes the placeholder's place once the opener registers", func(t *testing.T) {

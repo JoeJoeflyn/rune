@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/fs"
 	"os/user"
+	"runtime"
 
 	"os"
 	"os/exec"
@@ -2565,7 +2566,8 @@ func TestExStandardNavigationPrecedesLayoutBindings(t *testing.T) {
 	buf := new(cell.Buffer)
 	buf.Init()
 	buf.WriteString("  first line\nlast line")
-	ed := standard.NewHandler(buf, resource, text.IndentRuneTab, 0)
+	ed := standard.NewHandler(buf, resource, text.IndentRuneTab, 0,
+		standard.WithKeymap(standard.KeymapMacOS))
 	ed.Resize(40, 10)
 	require.True(t, ed.SetCursorAtScroll(term.Coordinates{X: 7}))
 	require.NoError(t, h.ex.invokeWindow().SetContent(ed))
@@ -2590,6 +2592,39 @@ func TestExStandardNavigationPrecedesLayoutBindings(t *testing.T) {
 		Type: term.EventKey, Key: layoutUp.Key, Mod: layoutUp.Mod,
 	})
 	require.Equal(t, []string{"layoutfocus"}, h.firedCommands())
+}
+
+// TestExStandardLinuxMetaReachesCommandLayer pins that on Linux the standard
+// editor claims no <meta> chord, so a preset binding on one fires even while
+// the editor has focus.
+func TestExStandardLinuxMetaReachesCommandLayer(t *testing.T) {
+	metaLeft := term.KeyComb{Key: term.KeyArrowLeft, Mod: term.ModMeta}
+	metaL := term.KeyComb{Ch: 'l', Mod: term.ModMeta}
+
+	h := newExSequencerHarness(t, nil,
+		map[term.KeyComb][][]string{
+			metaLeft: {{"layoutresize"}},
+			metaL:    {{"layoutfocus"}},
+		}, nil, 20*time.Millisecond)
+
+	resource, err := workspaceapi.ParseURI("file:///standard-linux-meta.go")
+	require.NoError(t, err)
+	buf := new(cell.Buffer)
+	buf.Init()
+	buf.WriteString("  first line\nlast line")
+	ed := standard.NewHandler(buf, resource, text.IndentRuneTab, 0,
+		standard.WithKeymap(standard.KeymapLinux))
+	ed.Resize(40, 10)
+	require.True(t, ed.SetCursorAtScroll(term.Coordinates{X: 7}))
+	require.NoError(t, h.ex.invokeWindow().SetContent(ed))
+
+	for _, key := range []term.KeyComb{metaLeft, metaL} {
+		_, _ = h.ex.Handle(term.Event{Type: term.EventKey, Key: key.Key, Mod: key.Mod, Ch: key.Ch})
+	}
+	require.Equal(t, []string{"layoutresize", "layoutfocus"}, h.firedCommands())
+	require.Equal(t, term.Coordinates{X: 7}, ed.CursorAtScroll())
+	_, selected := ed.Selection()
+	require.False(t, selected)
 }
 
 func TestExStandardAltLayoutBindingsReachCommandLayer(t *testing.T) {
@@ -2781,10 +2816,10 @@ func TestExEmacsLifecycleBindingsReachCommandLayerFromTerminal(t *testing.T) {
 		src: string(runeStar), modal: true, tui: false,
 	})
 	require.NoError(t, err)
-	overlay, err := os.ReadFile("../../cmd/rune/preset_emacs.yaml")
+	overlay, err := os.ReadFile("../../cmd/rune/preset_emacs_darwin.yaml")
 	require.NoError(t, err)
 	cfg, err := decodeOverlayConfigFile(
-		bytes.NewReader(overlay), "preset_emacs.yaml", base)
+		bytes.NewReader(overlay), "preset_emacs_darwin.yaml", base)
 	require.NoError(t, err)
 	mappings := (&ideConfig{cfg: cfg, errors: map[string]error{}}).commandKeyMappings()
 
@@ -3609,6 +3644,7 @@ func testPromptEditor() command.Editor {
 		tabspaces:        4,
 		scheduleNextTick: func(fn func()) bool { fn(); return true },
 		clipboard:        clipboard.NewInMemory(),
+		goos:             runtime.GOOS,
 	}
 }
 
@@ -8553,6 +8589,14 @@ func (v *testVte) URI() workspaceapi.URI {
 
 func (v *testVte) Title() string {
 	return v.title
+}
+
+func (v *testVte) ExitErr() error {
+	return nil
+}
+
+func (v *testVte) CursorAtScroll() term.Coordinates {
+	return v.cursor
 }
 
 func newExForTestingTasks(t *testing.T) (testEx, *sync.Mutex, func()) {
